@@ -28,6 +28,17 @@ none of which any corpus document holds:
   case (such as `<?lab?>` or `<?amb?>`), is read as a processing
   instruction; statifier-ex refuses the document.
 
+It differs in these readings of a document's elements, none of which any
+corpus document holds either:
+
+- An element nested more than 128 elements below the `<scxml>` root is
+  refused; statifier-ex reads any depth. Markup kept as text inside
+  `<content>` or `<assign>`, and an element inside `<data>`, `<script>`,
+  `<elseif>` or `<else>`, is not counted, since neither port descends into
+  it.
+- The message refusing stray text previews its first forty code points;
+  statifier-ex previews forty grapheme clusters.
+
 ## License
 
 MIT, see [LICENSE](LICENSE).
