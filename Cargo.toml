@@ -1,0 +1,19 @@
+[package]
+name = "statifier"
+version = "0.0.0"
+edition = "2024"
+# The oldest Rust this crate supports; it matches the floor the predicator
+# crate (predicator-rs 0.1.0) declares.
+rust-version = "1.85"
+license = "MIT"
+repository = "https://github.com/riddler/statifier-rs"
+readme = "README.md"
+description = "An SCXML statechart interpreter core, a conformant sibling of the Elixir statifier package."
+keywords = ["statechart", "scxml", "state-machine", "interpreter", "workflow"]
+categories = ["algorithms", "parser-implementations"]
+include = ["/src/", "/Cargo.toml", "/README.md", "/LICENSE", "/CHANGELOG.md"]
+
+[dependencies]
+
+[package.metadata.docs.rs]
+all-features = true
