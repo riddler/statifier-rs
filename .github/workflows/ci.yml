@@ -1,0 +1,148 @@
+name: CI
+
+# Three jobs. `gate` runs the full quality gate - the command an agent must
+# have green before committing - on the Rust toolchain mise.toml pins.
+# `msrv` runs the test suite on the oldest Rust the crate declares
+# (Cargo.toml's package.rust-version), so a change that builds only on a newer
+# Rust is caught before it ships. `wasm` builds the library for
+# wasm32-unknown-unknown, so a use of something that target lacks is caught
+# too.
+#
+# Every action in every job is pinned to a full commit SHA with its version
+# in a trailing comment, so a moved tag cannot change what runs here.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Read-only: nothing here writes to the repository or authenticates to a
+# registry.
+permissions:
+  contents: read
+
+# A newer push to the same branch or pull request supersedes the run in
+# progress.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Full quality gate (mise.toml Rust)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      # The toolchain comes from mise.toml, provisioned by mise itself: the
+      # Rust release and its components, cargo-llvm-cov and cargo-deny, at
+      # the versions pinned there. A version written into this file would
+      # drift the first time mise.toml moves. The action installs mise at
+      # the version below, runs `mise install` against mise.toml, and caches
+      # the tools.
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          version: 2026.8.2
+
+      # The gate is mise.toml's `gate` task: fmt, clippy, the tests with
+      # every feature and with none, the docs with every feature and with
+      # none, coverage and cargo deny. The command is read out of
+      # .claude/wurk.json (gate.full) rather than written here, so the gate
+      # CI runs and the gate an agent must have green are one definition with
+      # one place to change it. It is read and executed inside the step
+      # rather than interpolated into `run:`, so a repository file never
+      # reaches the shell as expression text.
+      - name: Full quality gate
+        run: |
+          set -euo pipefail
+          mapfile -t cmd < <(jq -er '.gate.full[]' .claude/wurk.json)
+          test "${#cmd[@]}" -gt 0 || { echo "::error::gate.full is empty" >&2; exit 1; }
+          echo "gate command (.claude/wurk.json gate.full): ${cmd[*]}"
+          "${cmd[@]}"
+
+      # A gate that rewrites a tracked file (Cargo.lock out of step with
+      # Cargo.toml, say) or leaves an untracked file that is not ignored
+      # passes locally only because the change is then committed; here it is
+      # a failure, as it is before a publish.
+      - name: Check the gate left the checkout clean
+        run: |
+          set -euo pipefail
+          if [ -n "$(git status --porcelain)" ]; then
+            git status --short
+            echo "::error::the gate left changed or untracked files" >&2
+            exit 1
+          fi
+
+  msrv:
+    name: Tests on the declared minimum Rust
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      # The floor is read out of Cargo.toml's package.rust-version rather
+      # than written here, so moving the floor moves this job with no edit to
+      # this file. rustup is on the runner already; it installs the floor's
+      # latest patch release, the one a user on that line runs.
+      - name: Read the declared minimum Rust
+        id: floor
+        run: |
+          set -euo pipefail
+          floor="$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["rust-version"])')"
+          test -n "$floor" || { echo "::error::no package.rust-version in Cargo.toml" >&2; exit 1; }
+          echo "rust=${floor}" >> "$GITHUB_OUTPUT"
+          echo "Cargo.toml declares rust-version ${floor}"
+
+      - name: Install the declared minimum Rust
+        env:
+          FLOOR: ${{ steps.floor.outputs.rust }}
+        run: rustup toolchain install "$FLOOR" --profile minimal --no-self-update
+
+      # `--locked`: the suite runs against the crates Cargo.lock pins, and a
+      # lock this Rust cannot use fails the job rather than being re-resolved
+      # here.
+      - name: Test with every feature on the declared minimum Rust
+        env:
+          FLOOR: ${{ steps.floor.outputs.rust }}
+        run: |
+          set -euo pipefail
+          rustc "+${FLOOR}" --version
+          cargo "+${FLOOR}" test --all-features --locked
+
+  wasm:
+    name: Library build (wasm32-unknown-unknown)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          version: 2026.8.2
+
+      # The target is added to the toolchain mise.toml pins, here only: a
+      # local `mise install` does not fetch it.
+      - name: Add the target
+        run: mise exec -- rustup target add wasm32-unknown-unknown
+
+      # The library alone (`--lib`), with the default features and then with
+      # every feature the crate declares. A feature that cannot build for this
+      # target is left out of the second build by name when it is added, and
+      # the exclusion is stated here.
+      - name: Build the library for the target
+        run: |
+          set -euo pipefail
+          mise exec -- cargo build --lib --locked --target wasm32-unknown-unknown
+          mise exec -- cargo build --lib --locked --target wasm32-unknown-unknown --all-features
