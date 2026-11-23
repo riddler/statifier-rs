@@ -9,6 +9,9 @@ publishes.
 This crate is not usable yet. Version `0.0.0` holds the name `statifier` on
 crates.io and contains no library code; the first real release follows.
 
+The conformance corpus this crate is checked against is vendored under
+`conformance/`, whose README says what is copied and from where.
+
 ## License
 
 MIT, see [LICENSE](LICENSE).

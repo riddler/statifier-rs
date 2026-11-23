@@ -3,6 +3,8 @@
 #   mise install          provision the toolchain below
 #   mise run gate:loop    inner loop: fmt, clippy, test
 #   mise run gate         full gate, the advancement gate
+#   mise run ratchet      write conformance/registry.json from a run
+#   mise run corpus:refresh   move conformance/statifier/ to a statifier-ex tag
 #
 # The Rust toolchain is pinned to one stable release; the crate itself
 # declares its oldest supported Rust as `rust-version` in Cargo.toml, while
@@ -21,6 +23,32 @@ run = "cargo fmt --all -- --check"
 [tasks."gate:clippy"]
 description = "Lint every target with every feature, warnings denied"
 run = "cargo clippy --all-targets --all-features -- -D warnings"
+
+[tasks."gate:corpus"]
+description = "The vendored corpus hashes to what its four records say"
+# One test of tests/conformance/, run on its own so what it prints is shown:
+# the tag, the commit, the case count per suite and the corpus hash.
+run = "cargo test --test conformance -- --exact corpus_check --nocapture"
+
+[tasks."gate:registry"]
+description = "conformance/registry.json passes every check RATCHET.md gives it"
+# Runs every case of the corpus and prints, per suite, the cases not yet
+# claimed.
+run = "cargo test --test conformance -- --exact registry_check --nocapture"
+
+[tasks.ratchet]
+description = "Write conformance/registry.json from a run of the whole corpus made now"
+# The one writer of the registry, outside the gate: it adds every case the
+# run observed to pass and refuses to drop one that no longer passes.
+run = "cargo test --test conformance -- --ignored --exact ratchet --nocapture"
+
+[tasks."corpus:refresh"]
+description = "Move conformance/statifier/ to a statifier-ex tag read from a clone"
+# Outside the gate. The tag and the clone are named in the environment, and
+# STATIFIER_CORPUS_CHECK=1 compares instead, writing nothing:
+#   STATIFIER_CORPUS_TAG=vX.Y.Z STATIFIER_CORPUS_CLONE=../statifier-ex mise run corpus:refresh
+# It refuses while the copy or its record has uncommitted changes.
+run = "cargo test --test conformance -- --ignored --exact refresh --nocapture"
 
 [tasks."gate:test"]
 description = "Test with every feature, then with no default features"
@@ -60,6 +88,8 @@ description = "Full gate"
 run = [
   { task = "gate:fmt" },
   { task = "gate:clippy" },
+  { task = "gate:corpus" },
+  { task = "gate:registry" },
   { task = "gate:test" },
   { task = "gate:doc" },
   { task = "gate:coverage" },
