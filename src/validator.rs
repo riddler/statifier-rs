@@ -49,6 +49,7 @@ mod states;
 #[cfg(test)]
 mod tests;
 
+pub use finding::{Owner, Reason, WarningReason};
 pub(crate) use finding::{ValidationError, Warning};
 
 use crate::document::Document;
