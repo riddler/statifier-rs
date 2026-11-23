@@ -5,9 +5,10 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-// Reading a chart is the reader, then lowering into the typed document. None
-// of it has a caller in the library until the compiler reads the document;
-// each expectation fails the build once one does, so it comes off then.
+// Reading a chart is the reader, lowering into the typed document, then the
+// validator. None of it has a caller in the library until the compiler reads
+// the document; each expectation fails the build once one does, so it comes
+// off then.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "no caller until the compiler reads the document")
@@ -18,6 +19,11 @@ mod document;
     expect(dead_code, reason = "no caller until the compiler reads the document")
 )]
 mod lowering;
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "no caller until the compiler reads the document")
+)]
+mod validator;
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "no caller until the compiler reads the document")
