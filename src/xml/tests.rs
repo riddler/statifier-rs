@@ -302,6 +302,13 @@ fn refuses_a_reserved_processing_instruction_target() {
     assert_eq!(root("<?xml-model href='x'?><a/>").name, "a");
 }
 
+// Sabotage: with every three-character target refused as reserved, this test fails.
+#[test]
+fn reads_the_processing_instructions_the_readme_names_as_differences() {
+    assert_eq!(root("<?xmlfoo?><a/>").name, "a");
+    assert_eq!(root("<?lab?><?amb x?><a><?pix?></a>").name, "a");
+}
+
 // Sabotage: with is_version accepting any value, this test fails.
 #[test]
 fn refuses_a_malformed_xml_declaration() {
@@ -442,17 +449,24 @@ fn refuses_an_element_left_open_naming_it() {
 
 // ---- refusals of references and characters
 
-// Sabotage: with read_reference keeping any name as literal text without a doctype, this test fails.
+// Sabotage: with read_reference refusing every name outside the five, this test fails.
 #[test]
-fn refuses_an_entity_other_than_the_five_predefined_ones_with_no_doctype() {
-    assert_refused("<a>&nbsp;</a>", Reason::UnknownEntity, 1, 4);
-    assert_refused("<a b=\"&x;\"/>", Reason::UnknownEntity, 1, 7);
+fn keeps_an_undeclared_entity_reference_as_its_literal_text_with_no_doctype() {
+    assert_eq!(text_value("<a>x &nbsp; y</a>"), "x &nbsp; y");
+    assert_eq!(attribute_value("<a b=\"&copy;\"/>"), "&copy;");
 }
 
 // Sabotage: with the is_whole_name check dropped from read_reference, this test fails.
 #[test]
-fn refuses_a_reference_to_no_name_under_a_doctype() {
-    assert_refused("<!DOCTYPE a><a>&1x;</a>", Reason::UnknownEntity, 1, 16);
+fn refuses_a_reference_whose_body_is_not_a_name() {
+    assert_refused("<a>&1x;</a>", Reason::MalformedReference, 1, 4);
+    assert_refused("<!DOCTYPE a><a>&1x;</a>", Reason::MalformedReference, 1, 16);
+    let error = refusal(b"<a>&1x;</a>");
+    assert!(
+        error.message.starts_with("&1x; does not name an entity"),
+        "{}",
+        error.message
+    );
 }
 
 // Sabotage: with read_reference letting a body run to any ';', this test fails.
@@ -567,7 +581,7 @@ fn keeps_a_declared_entity_reference_as_its_literal_text() {
     assert_eq!(attribute, "&x;");
 }
 
-// Sabotage: with skip_doctype setting the doctype flag only for an internal subset, this test fails.
+// Sabotage: with read_reference dropping the ampersand of a kept reference, this test fails.
 #[test]
 fn keeps_a_reference_under_an_external_subset_as_its_literal_text() {
     let source = "<!DOCTYPE a SYSTEM \"x.dtd\"><a>t &foo; &amp; &#65;</a>";
@@ -963,6 +977,9 @@ fn answers_every_byte_prefix_of_every_corpus_document_without_panicking() {
         "corpus prefixes read: {prefixes} over {} documents",
         documents.len()
     );
+    assert!(documents.len() > 300, "{}", documents.len());
+    let expected: usize = documents.iter().map(|(_, source)| source.len() + 1).sum();
+    assert_eq!(prefixes, expected);
 }
 
 // Sabotage: with read_cdata panicking at the end of the source, a cut document panics and this test fails.

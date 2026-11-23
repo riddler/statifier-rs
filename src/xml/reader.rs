@@ -18,8 +18,6 @@ pub(super) struct Reader<'a> {
     run: Option<(Mark, String)>,
     /// Where the last tag ended: the start of the next text run.
     tag_end: Mark,
-    /// Whether a document type declaration was read.
-    pub(super) doctype: bool,
 }
 
 impl<'a> Reader<'a> {
@@ -30,7 +28,6 @@ impl<'a> Reader<'a> {
             stack: Vec::new(),
             run: None,
             tag_end: Mark::START,
-            doctype: false,
         }
     }
 

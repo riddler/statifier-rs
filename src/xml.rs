@@ -15,11 +15,10 @@
 //!   too, while a CR decoded from `&#xD;` stays a CR. Both read the raw
 //!   source, so a CR followed by a comment is a lone CR.
 //! - The five predefined entities and decimal and hex character references
-//!   expand in text and in attribute values. Any other entity reference is
-//!   refused in a document with no document type declaration, where it can
-//!   name no declared entity; in a document with one, a reference to any
-//!   other name is kept as its literal text (`&name;`), since the declarations
-//!   are not read and nothing expands it.
+//!   expand in text and in attribute values. A reference to any other name
+//!   is kept as its literal text (`&name;`), with or without a document type
+//!   declaration, as the reference keeps it: no declaration is read, so
+//!   nothing expands it.
 //! - Every element carries the namespace its name resolves to under the
 //!   `xmlns` and `xmlns:prefix` declarations in scope, or `None` when none is.
 //!   An empty declaration binds the empty string and undeclares nothing.
@@ -204,9 +203,7 @@ pub(crate) enum Reason {
     /// A document type declaration has two different ends with markup
     /// between them.
     AmbiguousDoctype,
-    /// An entity reference names no entity this reader expands.
-    UnknownEntity,
-    /// An `&` starts no reference.
+    /// An `&` starts no reference, or a reference names nothing.
     MalformedReference,
     /// A character reference names no character XML allows.
     InvalidCharacterReference,
