@@ -138,16 +138,19 @@ impl Reader<'_> {
                 }
             };
         }
+        // Any other name is kept as its literal text, in every document: the
+        // reference's XML library keeps an entity it does not expand, and no
+        // document type definition is read.
         match predefined(body) {
             Some(c) => value.push(c),
-            None if self.doctype && is_whole_name(body) => {
+            None if is_whole_name(body) => {
                 value.push('&');
                 value.push_str(body);
                 value.push(';');
             }
             None => {
-                let message = format!("&{body}; is not a predefined entity");
-                return Err(refuse_at(at, Reason::UnknownEntity, &message));
+                let message = format!("&{body}; does not name an entity");
+                return Err(refuse_at(at, Reason::MalformedReference, &message));
             }
         }
         Ok(())

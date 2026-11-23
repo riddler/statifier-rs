@@ -131,7 +131,6 @@ impl Reader<'_> {
             ));
         }
         self.cursor.move_to(angle);
-        self.doctype = true;
         Ok(())
     }
 }
