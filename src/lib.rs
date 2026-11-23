@@ -26,6 +26,7 @@ mod compiler;
 )]
 mod datamodel;
 mod document;
+mod effect;
 // Nothing in the library steps a machine until the interpreter loop does;
 // the expectation fails the build once something does, so it comes off then.
 #[cfg_attr(
@@ -54,6 +55,7 @@ mod xml;
 #[cfg(test)]
 mod testing;
 
+pub use effect::{BlockOwner, Effect, PathSegment};
 pub use machine::Machine;
 /// The value type of a chart's datamodel: the predicator crate's own
 /// value, re-exported rather than mirrored, so a value a host passes in and

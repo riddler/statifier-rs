@@ -13,6 +13,7 @@
 //! ascending index order is document order, and no answer depends on a
 //! hash.
 
+mod content;
 mod entering;
 mod exit_entry;
 mod name_match;

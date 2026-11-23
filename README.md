@@ -66,6 +66,18 @@ any corpus document holds:
   milliseconds fall outside that range is refused as an invalid delay;
   statifier-ex reads any size.
 
+It differs in these writes to a location, such as an `<assign>`'s, none
+of which any corpus document holds:
+
+- A write at a list index of 1,048,576 or more that lies past the list's
+  end, such as `a[2000000]` against a short list, is refused as an invalid
+  index; statifier-ex pads the list to any length.
+- A location is read by this crate's own reader, since the predicator crate
+  has no location API: a root name followed by property and bracket
+  accesses. Text of any other shape is refused as not assignable, where
+  statifier-ex refuses some of it as a parse error. Both raise
+  `error.execution`; only the reason its data carries differs.
+
 It differs in this reading of a chart's history states, which no corpus
 document holds either:
 

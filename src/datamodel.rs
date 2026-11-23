@@ -16,11 +16,13 @@
 //! ([`Failure::event`]).
 
 pub(crate) mod delay;
+pub(crate) mod location;
 pub(crate) mod system_variables;
 
 #[cfg(test)]
 mod tests;
 
+use location::LocationReason;
 use system_variables::{EventFields, EventType};
 
 use crate::machine::{Chart, Deferred, Expr, Program};
@@ -116,6 +118,30 @@ pub(crate) enum Failure {
     /// A delay that is not one: text the duration reader refuses, or a value
     /// that is neither text nor a duration.
     InvalidDelay(Value),
+    /// A location (`source`, as written) could not be resolved or written.
+    Location {
+        /// The location as written.
+        source: String,
+        /// Why.
+        reason: LocationReason,
+    },
+    /// A location's root is not one the datamodel holds: a write never
+    /// declares a root.
+    UnboundLocation(String),
+    /// A `<foreach>` `item` that is not a bare name.
+    IllegalItemName(String),
+    /// A `<foreach>` `index` that is not a bare name.
+    IllegalIndexName(String),
+    /// A `<foreach>` `array` that evaluated to something other than a list.
+    NotIterable(Value),
+    /// A node inside an `<if>` or a `<foreach>` failed: `content` is its
+    /// index and `failure` its own failure.
+    Nested {
+        /// The failing node's index.
+        content: usize,
+        /// Its failure.
+        failure: Box<Failure>,
+    },
 }
 
 impl Failure {
@@ -147,6 +173,37 @@ impl Failure {
             Failure::InvalidDelay(value) => {
                 map.insert("value", value.clone());
                 "invalid_delay"
+            }
+            Failure::Location { source, reason } => {
+                map.insert("source", Value::from(source.as_str()));
+                map.insert("type", Value::from("location_error"));
+                map.insert("reason", Value::from(reason.as_str()));
+                map.insert("message", Value::from(reason.message()));
+                "evaluator_error"
+            }
+            Failure::UnboundLocation(source) => {
+                map.insert("location", Value::from(source.as_str()));
+                "unbound_location"
+            }
+            Failure::IllegalItemName(name) => {
+                map.insert("name", Value::from(name.as_str()));
+                "illegal_item_name"
+            }
+            Failure::IllegalIndexName(name) => {
+                map.insert("name", Value::from(name.as_str()));
+                "illegal_index_name"
+            }
+            Failure::NotIterable(value) => {
+                map.insert("value", value.clone());
+                "not_iterable"
+            }
+            Failure::Nested { content, failure } => {
+                map.insert(
+                    "c_index",
+                    Value::Integer(i64::try_from(*content).unwrap_or(i64::MAX)),
+                );
+                map.insert("reason", failure.data());
+                "nested_content"
             }
         };
         map.insert("kind", Value::from(kind));
