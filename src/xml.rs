@@ -153,7 +153,7 @@ pub(crate) enum Node {
 /// Why a document was refused.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Reason {
+pub enum Reason {
     /// The bytes are not UTF-8.
     InvalidEncoding,
     /// The document starts with a byte order mark.

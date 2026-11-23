@@ -10,7 +10,7 @@ pub(crate) const MAX_DEPTH: usize = 128;
 /// Why lowering refused something, with the detail each reason carries.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Reason {
+pub enum Reason {
     /// An element in SCXML's vocabulary that no builder reads, named as
     /// written.
     UnsupportedElement {
@@ -63,7 +63,7 @@ pub(crate) enum Reason {
         /// The attribute's name.
         attribute: &'static str,
     },
-    /// An element nested deeper than [`MAX_DEPTH`] below the root.
+    /// An element nested more than 128 elements below the root.
     NestingTooDeep {
         /// The qualified name as written.
         name: String,

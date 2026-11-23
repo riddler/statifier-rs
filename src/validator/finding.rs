@@ -6,8 +6,9 @@ use crate::xml::Location;
 
 /// The slot a default transition came from: a state's `<initial>` element or
 /// a `<history>`'s own transitions, with the owning state's id.
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Owner {
+pub enum Owner {
     /// The `<initial>` element of the state with this id.
     Initial(Option<String>),
     /// The `<history>` with this id.
@@ -18,7 +19,7 @@ pub(crate) enum Owner {
 /// Each variant is one of the reference's reasons, under its name.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Reason {
+pub enum Reason {
     /// A state or `<data>` id written after its first occurrence.
     DuplicateId {
         /// The repeated id.
@@ -258,7 +259,7 @@ impl ValidationError {
 /// either way.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum WarningReason {
+pub enum WarningReason {
     /// A `<raise>` or `<send>` inside `<finalize>`.
     FinalizeForbiddenContent {
         /// The element's name.

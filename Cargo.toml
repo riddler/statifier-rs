@@ -14,6 +14,9 @@ categories = ["algorithms", "parser-implementations"]
 include = ["/src/", "/Cargo.toml", "/README.md", "/LICENSE", "/CHANGELOG.md"]
 
 [dependencies]
+# The predicator crate: compiles and evaluates the conditions, values and
+# scripts a chart writes. The crate's one runtime dependency.
+predicator-rs = "0.1"
 
 # The conformance apparatus under tests/conformance/ reads the vendored corpus
 # (JSON) and recomputes its SHA-256 hash; neither crate is a dependency of the

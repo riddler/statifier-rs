@@ -7,7 +7,13 @@ effects out) and be checked against the conformance corpus that statifier-ex
 publishes.
 
 This crate is not usable yet. Version `0.0.0` holds the name `statifier` on
-crates.io and contains no library code; the first real release follows.
+crates.io; the first real release follows. On `main` the crate reads a
+chart: `statifier::compile` takes an SCXML document's source and answers an
+immutable machine (every state interned, every expression compiled through
+the [predicator-rs](https://crates.io/crates/predicator-rs) crate, the
+validator's warnings carried on it), or the refusals of the first stage
+that refused the document, each with a reason, a message and a span. It
+does not execute a machine yet.
 
 The conformance corpus this crate is checked against is vendored under
 `conformance/`, whose README says what is copied and from where.
@@ -38,6 +44,21 @@ corpus document holds either:
   it.
 - The message refusing stray text previews its first forty code points;
   statifier-ex previews forty grapheme clusters.
+
+It differs in these readings of a chart's expressions, which the predicator
+crate decides and statifier-ex's predicator does not share, none of which
+any corpus document holds:
+
+- An integer is 64-bit. A condition or value holding an integer literal
+  outside that range is refused at compile time; statifier-ex compiles it.
+  An in-line `<data>` or `<assign>` value holding one is kept as its text,
+  a string, where statifier-ex reads the integer.
+- An expression nests 400 levels at most; a deeper one is refused at
+  compile time, and statifier-ex compiles it.
+
+`compile` does not yet refuse a chart whose expressions call a function no
+evaluation can supply: statifier-ex refuses such a chart with the reason
+`unknown_function`, and here the call fails only when it is evaluated.
 
 ## License
 

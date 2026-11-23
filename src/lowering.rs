@@ -48,6 +48,7 @@ mod error;
 #[cfg(test)]
 mod tests;
 
+pub use error::Reason;
 pub(crate) use error::{LoweringError, MAX_DEPTH};
 
 use crate::document::{
