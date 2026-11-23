@@ -303,6 +303,31 @@ fn a_store_into_a_seeded_system_root_is_refused_at_the_attempt() {
     );
 }
 
+// Sabotage: with execute skipping a stored root whose new value compares
+// equal to its old one, -0.0 over 0.0 is dropped and this fails.
+#[test]
+fn a_write_that_compares_equal_to_the_old_value_is_still_kept() {
+    let machine = machine();
+    let configuration = BTreeSet::new();
+    let data = seeded(&[("x", Value::Float(0.0))]);
+    let scope = Scope {
+        data: &data,
+        chart: machine.chart(),
+        configuration: &configuration,
+    };
+    let executed = execute(&scope, &program("x = -0.0"));
+    assert_eq!(executed.failure, None);
+    let Some(Value::Float(x)) = get(&executed.data, "x") else {
+        panic!("x is a float");
+    };
+    assert!(x.is_sign_negative());
+    let after = Scope {
+        data: &executed.data,
+        ..scope
+    };
+    assert_eq!(evaluate(&after, &expr("'' + x")), Ok(Value::from("-0.0")));
+}
+
 // Sabotage: with the system_changed check dropped from execute, a fresh
 // underscore root is merged and no failure is answered, so this fails.
 #[test]

@@ -234,8 +234,11 @@ pub(crate) struct Executed {
 /// session seeds them ([`system_variables::seed`]). A system root the program creates fresh
 /// is not on that list: its write lands, the run goes on, and the change
 /// found after the run is never kept and fails the run, naming the first
-/// such root in sort order. The writes to other roots made before any
-/// failure are kept. A program that did not compile answers its refusal and
+/// such root in sort order. Every write to another root made before any
+/// failure is kept, whether or not the value it stores compares equal to
+/// the one it replaces (`-0.0` over `0.0` is kept, as the reference keeps
+/// it); a stored system root is always a fresh one, since a store into one
+/// already held is refused. A program that did not compile answers its refusal and
 /// writes nothing.
 pub(crate) fn execute(scope: &Scope<'_>, program: &Deferred<Program>) -> Executed {
     let program = match program {
@@ -265,9 +268,6 @@ pub(crate) fn execute(scope: &Scope<'_>, program: &Deferred<Program>) -> Execute
     let mut system_changed = Vec::new();
     for root in stored {
         let after = context.get(&root).cloned().unwrap_or(Value::Undefined);
-        if before.get(&root) == Some(&after) {
-            continue;
-        }
         match &root {
             Key::String(name) if system_root(name) => system_changed.push(name.clone()),
             _ => {
