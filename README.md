@@ -15,6 +15,13 @@ validator's warnings carried on it), or the refusals of the first stage
 that refused the document, each with a reason, a message and a span. It
 does not execute a machine yet.
 
+A chart's datamodel holds predicator values: `statifier::Value` is the
+predicator-rs crate's `Value`, re-exported rather than mirrored, so a
+value a host passes in and a value an expression answers are one type.
+That type is part of this crate's public API, so a release of this crate
+that moves to a new minor version of predicator-rs is a new minor version
+of this crate too.
+
 The conformance corpus this crate is checked against is vendored under
 `conformance/`, whose README says what is copied and from where.
 
@@ -55,6 +62,9 @@ any corpus document holds:
   a string, where statifier-ex reads the integer.
 - An expression nests 400 levels at most; a deeper one is refused at
   compile time, and statifier-ex compiles it.
+- A `<send>` delay is a 64-bit count of milliseconds. A delay whose
+  milliseconds fall outside that range is refused as an invalid delay;
+  statifier-ex reads any size.
 
 `compile` does not yet refuse a chart whose expressions call a function no
 evaluation can supply: statifier-ex refuses such a chart with the reason
