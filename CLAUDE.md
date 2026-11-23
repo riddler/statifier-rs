@@ -148,8 +148,10 @@ hand-written, with no XML crate. The crate targets `std` and builds on the
 Rust version `rust-version` in `Cargo.toml` names.
 
 The tree holds these instructions, the wurk manifest (`.claude/wurk.json`)
-and the tracker's configuration (`.beads/`); the crate, its gate, the
-vendored corpus and the workflows arrive in the beads that follow.
+and the tracker's configuration (`.beads/`), the crate's scaffold, its gate,
+the workflows, and the vendored corpus with its conformance apparatus; the
+interpreter arrives in the beads that follow, and until it does the registry
+claims no case.
 
 - **The crate is `statifier`.** Its one hand-made publish is the
   maintainer's name claim at `0.0.0`; the first release from this
@@ -162,9 +164,11 @@ vendored corpus and the workflows arrive in the beads that follow.
   configuration.
 - **Interpreter core only.** Persistence and timer adapters are out of this
   package. Host processors are passed per call.
-- **The corpus is the arbiter.** `conformance/` will hold the corpus
+- **The corpus is the arbiter.** `conformance/statifier/` holds the corpus
   vendored from statifier-ex at a release tag, its tag, commit and hash
-  recorded in `conformance/statifier.vendored.json`. The vendored files are
+  recorded in `conformance/statifier.vendored.json`; `conformance/README.md`
+  says what is copied and what is this repository's own, and the apparatus
+  that checks it lives in `tests/conformance/`. The vendored files are
   never edited, and every case this port claims passes with no skip list: a
   case this port cannot pass is reported against statifier-ex with its
   evidence, never skipped or worked round here. An answer the corpus does
@@ -188,7 +192,8 @@ mise run gate           # full gate
 ### This repo's own gate rules
 
 - The full gate is `mise run gate`; the inner loop is `mise run gate:loop`.
-  Only the full command is the advancement gate: a `gate:loop` run, like a
+  The full gate includes the corpus check (`mise run gate:corpus`) and the
+  registry check (`mise run gate:registry`). Only the full command is the advancement gate: a `gate:loop` run, like a
   bare `cargo test` or any other scoped run, is never evidence for a claim
   that the gate is green.
 - **Never truncate the output.** No `| tail`, `| head`, `| grep`; truncating
