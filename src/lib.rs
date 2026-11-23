@@ -14,6 +14,17 @@
 #![warn(missing_docs)]
 
 mod compiler;
+// Nothing in the library evaluates through the binding until the
+// interpreter does; the expectation fails the build once something does, so
+// it comes off then.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "no caller until the interpreter evaluates through the binding"
+    )
+)]
+mod datamodel;
 mod document;
 mod lowering;
 // Nothing in the library reads the machine until the interpreter steps it;
@@ -34,6 +45,10 @@ mod xml;
 mod testing;
 
 pub use machine::Machine;
+/// The value type of a chart's datamodel: the predicator crate's own
+/// value, re-exported rather than mirrored, so a value a host passes in and
+/// a value an expression answers are one type.
+pub use predicator_rs::Value;
 pub use refusal::{
     CompileReason, LoweringReason, Owner, ReadReason, Reason, Refusal, Span, ValidationReason,
     Warning, WarningReason,
