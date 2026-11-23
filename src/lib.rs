@@ -5,13 +5,27 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-// The XML reader has no caller in the library until lowering uses it; the
-// expectation fails the build once one does, so it comes off then.
+// Reading a chart is the reader, then lowering into the typed document. None
+// of it has a caller in the library until the compiler reads the document;
+// each expectation fails the build once one does, so it comes off then.
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "no caller until lowering uses the XML reader")
+    expect(dead_code, reason = "no caller until the compiler reads the document")
+)]
+mod document;
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "no caller until the compiler reads the document")
+)]
+mod lowering;
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "no caller until the compiler reads the document")
 )]
 mod xml;
+
+#[cfg(test)]
+mod testing;
 
 #[cfg(test)]
 mod tests {
