@@ -18,3 +18,8 @@
 # Local beads telemetry churn; the tracker syncs through its own Dolt remote
 # (`sync.remote` in `.beads/config.yaml`), not through this git repository.
 .beads/interactions.jsonl
+
+# Coverage output (cargo-llvm-cov)
+/coverage/
+*.profraw
+lcov.info

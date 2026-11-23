@@ -209,6 +209,8 @@ mise run gate           # full gate
   `Cargo.lock`, `mise.toml`, `deny.toml`, `rustfmt.toml` and `clippy.toml`
   decide how it runs and what it resolves (a lock move alone changes the
   crates the gate builds against). A listed path need not exist yet.
+  A change to any `.rs` file or any `Cargo.toml`, wherever it lives, never
+  claims the exception.
 - Documentation may point at the gate; it never enlarges it.
 
 ## Conventions
