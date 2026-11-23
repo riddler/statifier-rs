@@ -82,6 +82,80 @@ pub(crate) struct Chart {
     pub(crate) warnings: Vec<Warning>,
 }
 
+/// The queries the specification's algorithm asks of the chart's
+/// structure, each an integer comparison or a walk up the parent links,
+/// ported from the reference's own (`Statifier.Machine` in statifier-ex).
+/// Every index passed is one the chart interned.
+impl Chart {
+    /// Whether `descendant` sits inside `ancestor`. Proper: a state is not
+    /// its own descendant, which is what keeps a transition's domain out of
+    /// its own exit set.
+    pub(crate) fn is_descendant(&self, descendant: usize, ancestor: usize) -> bool {
+        ancestor < descendant && descendant <= self.states[ancestor].last
+    }
+
+    /// Whether the state has no child states. A final state is atomic.
+    pub(crate) fn is_atomic(&self, index: usize) -> bool {
+        self.states[index].children.is_empty()
+    }
+
+    /// Whether the state is compound: a `<state>` or the root with at least
+    /// one child. A parallel is never compound.
+    pub(crate) fn is_compound(&self, index: usize) -> bool {
+        let state = &self.states[index];
+        matches!(state.kind, Kind::State | Kind::Scxml) && !state.children.is_empty()
+    }
+
+    /// Whether the state is a `<parallel>`.
+    pub(crate) fn is_parallel(&self, index: usize) -> bool {
+        self.states[index].kind == Kind::Parallel
+    }
+
+    /// Whether the state is a `<final>`.
+    pub(crate) fn is_final(&self, index: usize) -> bool {
+        self.states[index].kind == Kind::Final
+    }
+
+    /// Whether the state is a `<history>` pseudo-state.
+    pub(crate) fn is_history(&self, index: usize) -> bool {
+        self.states[index].kind == Kind::History
+    }
+
+    /// The state's child states in document order, history pseudo-states
+    /// left out: the specification's `getChildStates`.
+    pub(crate) fn child_states(&self, index: usize) -> impl Iterator<Item = usize> + '_ {
+        let state = &self.states[index];
+        state
+            .children
+            .iter()
+            .copied()
+            .filter(|child| !state.history_children.contains(child))
+    }
+
+    /// The state's proper ancestors, nearest first and the root last: the
+    /// specification's `getProperAncestors` with no bound.
+    pub(crate) fn proper_ancestors(&self, index: usize) -> impl Iterator<Item = usize> + '_ {
+        std::iter::successors(self.states[index].parent, |&ancestor| {
+            self.states[ancestor].parent
+        })
+    }
+
+    /// The least common compound ancestor of `indexes`, the specification's
+    /// `findLCCA`: the nearest proper ancestor of the first index that is
+    /// compound and holds every index as a proper descendant, `None` when
+    /// none does or `indexes` is empty. A parallel is never one, as the
+    /// specification defines a compound state and as the reference reads it.
+    pub(crate) fn lcca(&self, indexes: &[usize]) -> Option<usize> {
+        let first = *indexes.first()?;
+        self.proper_ancestors(first).find(|&candidate| {
+            self.is_compound(candidate)
+                && indexes
+                    .iter()
+                    .all(|&index| self.is_descendant(index, candidate))
+        })
+    }
+}
+
 /// Which element made a state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Kind {

@@ -66,6 +66,16 @@ any corpus document holds:
   milliseconds fall outside that range is refused as an invalid delay;
   statifier-ex reads any size.
 
+It differs in this reading of a chart's history states, which no corpus
+document holds either:
+
+- A history whose default transition leads back to it through other
+  history states of the same parent, such as two histories each naming the
+  other as its default target, stands for no state once the chain returns
+  to it: a transition targeting it alone leaves and enters nothing, and
+  entering it enters nothing. statifier-ex never finishes resolving such a
+  history.
+
 `compile` does not yet refuse a chart whose expressions call a function no
 evaluation can supply: statifier-ex refuses such a chart with the reason
 `unknown_function`, and here the call fails only when it is evaluated.

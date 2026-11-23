@@ -26,6 +26,16 @@ mod compiler;
 )]
 mod datamodel;
 mod document;
+// Nothing in the library steps a machine until the interpreter loop does;
+// the expectation fails the build once something does, so it comes off then.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "no caller until the interpreter loop selects, exits and enters"
+    )
+)]
+mod interpreter;
 mod lowering;
 // Nothing in the library reads the machine until the interpreter steps it;
 // the expectation fails the build once something does, so it comes off then.
