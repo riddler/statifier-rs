@@ -58,7 +58,7 @@ use crate::document::{
 use crate::xml::{Element, Location, Node};
 
 /// The SCXML namespace.
-const SCXML_NAMESPACE: &str = "http://www.w3.org/2005/07/scxml";
+pub(crate) const SCXML_NAMESPACE: &str = "http://www.w3.org/2005/07/scxml";
 
 /// Lowers the element tree `root`, read from `source`, into its typed
 /// document. `<content>` and `<assign>` slice their markup out of `source`.
@@ -985,7 +985,7 @@ fn foreign(element: &Element) -> LoweringError {
 // Whether trimming Unicode whitespace from `text` leaves nothing. Rust's
 // whitespace is the Unicode White_Space property, the set the reference
 // trims.
-fn is_blank(text: &str) -> bool {
+pub(crate) fn is_blank(text: &str) -> bool {
     text.chars().all(char::is_whitespace)
 }
 
