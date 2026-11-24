@@ -102,7 +102,9 @@ leaves (`State::active_leaf_count`, or `Done::active_leaf_count`) against
 the ids read, so a case whose active leaf has no id fails, as the
 reference's harness fails it. A case whose `host` object needs what the
 drive does not honour, such as an Event I/O Processor it does not run,
-fails naming it. Every case of the statifier suite fails with the reason
+fails naming it. A case whose source holds an `<invoke>` element fails
+naming invoke, which is not built yet, so no such case is claimed before
+an invocation runs. Every case of the statifier suite fails with the reason
 that it is not driven. The registry check prints, for each driven suite,
 how many cases pass, and the gap list: every case of every suite the
 registry does not claim, in the reference's order, with its conformance
