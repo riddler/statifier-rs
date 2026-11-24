@@ -697,28 +697,30 @@ fn the_leaf_read_answers_the_active_atomic_states_sorted_unnamed_left_out() {
     assert_eq!(started.state.configuration(), ["b", "m", "p", "s", "z"]);
 }
 
-// Sabotage: with `active_leaf_states` reading the core's configuration on a
-// stopped chart, the second assert_eq goes red (it answers none).
+// A stopped chart has no active state, so the leaf read answers none, as
+// the reference's does; the leaves it stopped in are on `Done`.
+// Sabotage: with `Done::active_leaf_states` built empty in `perform_one`,
+// the last assert_eq goes red; with `active_leaf_states` answering the
+// done leaves on a stopped chart, the assertion that it is empty goes red.
 #[test]
-fn the_leaf_read_answers_a_stopped_chart_the_leaves_it_stopped_in() {
+fn a_stopped_chart_answers_no_leaf_and_its_done_the_leaves_it_stopped_in() {
     let started = start(
         r#" initial="a""#,
         r#"<state id="a"><transition event="e.go" target="f"/></state><final id="f"/>"#,
     );
     assert_eq!(started.state.active_leaf_states(), ["a"]);
     let moved = started.state.step("e.go", Value::Undefined).unwrap();
-    assert_eq!(moved.state.active_leaf_states(), ["f"]);
+    assert!(moved.state.active_leaf_states().is_empty());
     assert!(moved.state.configuration().is_empty());
-    assert_eq!(
-        moved.state.done().map(|done| done.configuration.clone()),
-        Some(vec!["f".to_owned()])
-    );
+    let done = moved.state.done().expect("a stopped chart");
+    assert_eq!(done.configuration, ["f"]);
+    assert_eq!(done.active_leaf_states, ["f"]);
 }
 
 // A nested final ends its parent's region, not the chart: the leaf read is
 // the live configuration's.
-// Sabotage: with `active_leaf_states` answering the stopped leaves always,
-// the first assert_eq goes red (they are empty while the chart runs).
+// Sabotage: with `active_leaf_states` answering the done leaves (none while
+// the chart runs) in place of the live read, the first assert_eq goes red.
 #[test]
 fn the_leaf_read_of_a_running_chart_holds_a_nested_final() {
     let started = start(

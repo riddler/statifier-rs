@@ -32,8 +32,9 @@ pub enum Outcome {
 /// The drive is the one the copy's `RATCHET.md` describes under "What a case
 /// asserts", made through the crate's public surface alone
 /// ([`statifier::compile`], [`statifier::Machine::start`],
-/// [`State::step`], [`State::advance`] through [`clock`], and
-/// [`State::active_leaf_states`]): compile the case's source, start it and
+/// [`State::step`], [`State::advance`] through [`clock`],
+/// [`State::active_leaf_states`] and [`State::done`]): compile the case's
+/// source, start it and
 /// compare the active leaf states with `initial_configuration`, then for
 /// each step settle the clock, send the step's event and compare with the
 /// step's `configuration`. Each comparison is made once the configuration
@@ -41,9 +42,11 @@ pub enum Outcome {
 /// reference's harness compares (`assert_configuration/3` and
 /// `assert_configuration_eventually/3` in `lib/statifier/testing/case.ex`
 /// at the vendored tag). A configuration is compared as a set of ids; a
-/// stopped chart is compared at the configuration it stopped in, as the
-/// reference's harness restores it from the done effect. Only the event's
-/// name is sent, as the reference's harness sends only the name.
+/// stopped chart is compared at the leaves of the configuration it stopped
+/// in ([`statifier::Done::active_leaf_states`]), as the reference's harness
+/// restores that configuration from the done effect before it reads the
+/// leaves (`observed_state_chart/2` in the same file). Only the event's name
+/// is sent, as the reference's harness sends only the name.
 ///
 /// The reference's harness also fails a case whose active leaf has no id
 /// (`assert_every_leaf_named/2`); the public read leaves such a state out,
@@ -112,10 +115,8 @@ fn drive_case(item: &Value) -> Result<(), String> {
 /// The state once `expected` is reached or the deadline after `since` has
 /// passed.
 fn reach(state: &State, since: u64, expected: &[String]) -> Result<State, String> {
-    clock::await_until(state, since, |current| {
-        current.active_leaf_states() == expected
-    })
-    .map_err(|error| format!("the configuration deadline: {error}"))
+    clock::await_until(state, since, |current| leaves(current) == expected)
+        .map_err(|error| format!("the configuration deadline: {error}"))
 }
 
 /// The expected configuration, sorted.
@@ -134,9 +135,19 @@ fn configuration(value: Option<&Value>) -> Result<Vec<String>, String> {
     Ok(ids)
 }
 
+/// The active leaf states the drive compares: a stopped chart's are the
+/// leaves it stopped in, read from its done answer, as the reference's
+/// harness reads the done effect; a running chart's are read live.
+fn leaves(state: &State) -> Vec<String> {
+    state.done().map_or_else(
+        || state.active_leaf_states(),
+        |done| done.active_leaf_states.clone(),
+    )
+}
+
 /// Nothing when the active leaf states are `expected`; else the reason.
 fn compare(state: &State, expected: &[String], at: &str) -> Result<(), String> {
-    let found = state.active_leaf_states();
+    let found = leaves(state);
     if found == expected {
         return Ok(());
     }
@@ -237,18 +248,19 @@ pub fn pass_lines(corpus: &Corpus, results: &Results) -> Vec<String> {
         .collect()
 }
 
-/// The gap list: one line per case of a driven suite ([`DRIVEN_SUITES`])
-/// this crate's registry (`entries`) does not claim, in the reference's
-/// order (the manifest's suites, each suite's cases as its file lists
-/// them): the case, the features it needs (its `required_features`) and
-/// where it stands in `results`, passing or failing with why. A case that
+/// The gap list: one line per case of every suite this crate's registry
+/// (`entries`) does not claim, in the reference's order (the manifest's
+/// suites, each suite's cases as its file lists them): the case, its
+/// conformance class when the corpus gives one, the features it needs (its
+/// `required_features`), the host keys it carries when it carries any, and
+/// where it stands in `results`, passing or failing with why (a case of a
+/// suite the drive does not run fails with [`NOT_DRIVEN`]). A case that
 /// passes stays on the list until the ratchet claims it.
 pub fn gap_lines(corpus: &Corpus, entries: &[Entry], results: &Results) -> Vec<String> {
     let ours: BTreeSet<&str> = entries.iter().map(|entry| entry.case_id.as_str()).collect();
     corpus
         .suites
         .iter()
-        .filter(|suite| DRIVEN_SUITES.contains(&suite.suite.as_str()))
         .flat_map(|suite| suite.cases.iter())
         .filter_map(|item| id_of(item).map(|id| (id, item)))
         .filter(|(id, _)| !ours.contains(id))
@@ -258,23 +270,34 @@ pub fn gap_lines(corpus: &Corpus, entries: &[Entry], results: &Results) -> Vec<S
                 Some(Outcome::Fail(reason)) => format!("fails: {reason}"),
                 None => "not run".to_owned(),
             };
-            format!("conformance: gap: {id} (needs {}): {standing}", needs(item))
+            format!("conformance: gap: {id} ({}): {standing}", needs(item))
         })
         .collect()
 }
 
-/// The features a case needs, as its `required_features` lists them.
+/// What a case needs, for its gap line: its conformance class when the
+/// corpus gives one, the features its `required_features` lists, and the
+/// keys of its `host` object, sorted, when it has one.
 fn needs(item: &Value) -> String {
     let features: Vec<&str> = item
         .get("required_features")
         .and_then(Value::as_array)
         .map(|items| items.iter().filter_map(Value::as_str).collect())
         .unwrap_or_default();
-    if features.is_empty() {
-        "no feature".to_owned()
-    } else {
-        features.join(", ")
+    let mut parts = Vec::new();
+    if let Some(class) = item.get("conformance").and_then(Value::as_str) {
+        parts.push(class.to_owned());
     }
+    if features.is_empty() {
+        parts.push("needs no feature".to_owned());
+    } else {
+        parts.push(format!("needs {}", features.join(", ")));
+    }
+    if let Some(host) = item.get("host").and_then(Value::as_object) {
+        let keys: Vec<&str> = host.keys().map(String::as_str).collect();
+        parts.push(format!("host {}", keys.join(", ")));
+    }
+    parts.join("; ")
 }
 
 /// One line per suite: how many of its cases this crate's registry
