@@ -171,7 +171,8 @@ fn no_target_is_the_session_itself_and_always_reachable() {
     let (ran, _) = run(r##"<send event="e"/>"##, &given);
     assert_eq!(sent(&ran).0, None);
     let (ran, _) = run(r##"<send event="e" targetexpr="null"/>"##, &given);
-    assert_eq!(sent(&ran).0, Some(Value::Null));
+    // A null target is one spelling of no target, carried as `None`.
+    assert_eq!(sent(&ran).0, None);
 }
 
 // Sabotage: with Routes::reachable answering true for the parent whatever

@@ -4,6 +4,7 @@
 //! edited; copies live under the build's own temporary directory.
 
 use crate::checks;
+use crate::clock;
 use crate::corpus::{self, CaseShape, Corpus, root};
 use crate::ratchet;
 use crate::refresh::{self, Mode, Scratch, copy_dir};
@@ -1064,4 +1065,62 @@ fn a_refresh_refuses_a_copy_that_does_not_hash_to_its_manifest_and_writes_nothin
     );
     assert!(!repo.join("conformance/statifier").exists());
     assert!(!repo.join("conformance/statifier.vendored.json").exists());
+}
+
+const TIMED: &str = r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" initial="a">
+  <state id="a">
+    <onentry><send event="e.soon" delay="60ms"/><send event="e.later" delay="150ms"/>
+      <send event="e.past" delay="5000ms"/></onentry>
+    <transition event="e.soon" target="b"/>
+  </state>
+  <state id="b">
+    <transition event="e.later" target="c"/>
+    <transition event="e.past" target="d"/>
+  </state>
+  <state id="c"><transition event="e.past" target="d"/></state>
+  <state id="d"/>
+</scxml>"#;
+
+fn timed() -> statifier::State {
+    statifier::compile(TIMED)
+        .unwrap()
+        .start(statifier::Options::new("s-1"))
+        .unwrap()
+        .state
+}
+
+// The knobs are the reference harness's numbers.
+// Sabotage: with SETTLE_WINDOW_MS at 200, the settle test below reaches `c`.
+#[test]
+fn the_clock_knobs_are_the_reference_harness_constants() {
+    assert_eq!(clock::SETTLE_WINDOW_MS, 100);
+    assert_eq!(clock::CONFIGURATION_DEADLINE_MS, 4_000);
+}
+
+// Sabotage: with `settle` advancing to the next due time whatever it is,
+// the 150 ms timer fires and the chart reaches `c`.
+#[test]
+fn the_settle_window_fires_only_the_timers_due_within_it() {
+    let settled = clock::settle(&timed()).unwrap();
+    assert_eq!(settled.now_ms(), 100);
+    assert_eq!(settled.configuration(), ["b"]);
+    let idle = statifier::compile(
+        r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0"><state id="a"/></scxml>"#,
+    )
+    .unwrap()
+    .start(statifier::Options::new("s-1"))
+    .unwrap()
+    .state;
+    assert_eq!(clock::settle(&idle).unwrap().now_ms(), 0);
+}
+
+// Sabotage: with the deadline ignored, the 5000 ms timer fires and the
+// chart reaches `d`.
+#[test]
+fn the_deadline_stops_waiting_four_seconds_after_the_event() {
+    let reached = clock::await_until(&timed(), 0, |state| state.configuration() == ["z"]).unwrap();
+    assert_eq!(reached.configuration(), ["c"]);
+    assert_eq!(reached.now_ms(), 150);
+    let early = clock::await_until(&timed(), 0, |state| state.configuration() == ["b"]).unwrap();
+    assert_eq!(early.now_ms(), 60);
 }

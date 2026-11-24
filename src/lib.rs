@@ -4,8 +4,14 @@
 //! value, cheap to clone and safe to share between threads, that holds every
 //! state interned in document order and every expression compiled through
 //! the predicator crate. A document it cannot compile is answered with the
-//! [`Refusal`]s of the first stage that refused it. The interpreter that
-//! executes a machine arrives in a later version.
+//! [`Refusal`]s of the first stage that refused it.
+//!
+//! [`Machine::start`] starts a chart in execution: a [`State`], an
+//! immutable value that [`State::step`] (an external event) and
+//! [`State::advance`] (the virtual clock) move, each answering the new
+//! state and the [`Effect`]s the call produced. The driver takes no
+//! runtime, thread, clock or I/O of its own: a send of a type the host
+//! registered is answered as an effect for the host to deliver.
 //!
 //! No function panics on a document a host passes: every refusal is a
 //! value, and nothing is configured globally.
@@ -14,38 +20,12 @@
 #![warn(missing_docs)]
 
 mod compiler;
-// Nothing in the library evaluates through the binding until the driver
-// steps a machine through the interpreter loop; the expectation fails the
-// build once something does, so it comes off then.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "no caller until the driver steps a machine through the loop"
-    )
-)]
 mod datamodel;
 mod document;
+mod driver;
 mod effect;
-// Nothing in the library steps a machine until the driver calls the
-// interpreter loop; the expectation fails the build once something does, so
-// it comes off then.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "no caller until the driver calls the interpreter loop"
-    )
-)]
 mod interpreter;
 mod lowering;
-// Nothing in the library reads the machine until the driver steps it
-// through the interpreter loop; the expectation fails the build once
-// something does, so it comes off then.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "no caller until the driver steps the machine")
-)]
 mod machine;
 mod refusal;
 mod validator;
@@ -54,15 +34,24 @@ mod xml;
 #[cfg(test)]
 mod testing;
 
+// The README's Rust examples, run as doctests.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeExamples;
+
+pub use driver::{Done, Error, Moved, Options, RoundBudget, State};
 pub use effect::{BlockOwner, Effect, PathSegment};
 pub use machine::Machine;
 /// The value type of a chart's datamodel: the predicator crate's own
 /// value, re-exported rather than mirrored, so a value a host passes in and
 /// a value an expression answers are one type.
 pub use predicator_rs::Value;
+/// The map type of a chart's datamodel and of a map value: the predicator
+/// crate's own, re-exported beside [`Value`], with its key type.
+pub use predicator_rs::{Key, Map};
 pub use refusal::{
-    CompileReason, LoweringReason, Owner, ReadReason, Reason, Refusal, Span, ValidationReason,
-    Warning, WarningReason,
+    CompileReason, DefaultTransitionOwner, LoweringReason, ReadReason, Reason, Refusal, Span,
+    ValidationReason, Warning, WarningReason,
 };
 
 /// Compiles the SCXML document `source` into its machine.

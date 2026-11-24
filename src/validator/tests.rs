@@ -1,4 +1,4 @@
-use super::finding::{Owner, Reason, WarningReason};
+use super::finding::{DefaultTransitionOwner, Reason, WarningReason};
 use super::{Options, Refused, Warning, validate};
 use crate::lowering::lower;
 use crate::testing::corpus_documents;
@@ -180,7 +180,7 @@ fn an_initial_element_with_no_transition_has_the_wrong_count() {
         refusals(&chart(r#"<state id="a"><initial/><state id="b"/></state>"#)),
         one(
             Reason::TransitionCount {
-                owner: Owner::Initial(some("a")),
+                owner: DefaultTransitionOwner::Initial(some("a")),
                 count: 0,
             },
             "<initial/>"
@@ -197,7 +197,7 @@ fn a_default_transition_without_a_target_is_reported() {
         )),
         one(
             Reason::TransitionMissingTarget {
-                owner: Owner::Initial(some("a")),
+                owner: DefaultTransitionOwner::Initial(some("a")),
             },
             r#"<transition target=""/>"#
         )
@@ -207,7 +207,7 @@ fn a_default_transition_without_a_target_is_reported() {
 // Sabotage: with a written event read from the event list, which an empty one leaves empty, and this test fails.
 #[test]
 fn a_default_transition_with_event_or_cond_is_reported_at_each() {
-    let owner = Owner::Initial(some("a"));
+    let owner = DefaultTransitionOwner::Initial(some("a"));
     assert_eq!(
         refusals(&chart(
             r#"<state id="a"><initial><transition event="" cond="c1" target="b"/></initial><state id="b"/></state>"#

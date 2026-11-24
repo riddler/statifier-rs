@@ -75,7 +75,7 @@ impl Routes {
 
 /// What a resolved target names.
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Route {
+pub(crate) enum Route {
     /// No target: the session's own external queue.
     Own,
     /// The session's internal queue.
@@ -95,7 +95,7 @@ enum Route {
 /// targets, with and without the leading `#`, are accepted; `#_scxml_` and
 /// a session id names a session, any other `#_` and a name an invoked
 /// session; anything else, a value that is not text included, is invalid.
-fn parse_target(target: Option<&Value>) -> Route {
+pub(crate) fn parse_target(target: Option<&Value>) -> Route {
     let text = match target {
         None | Some(Value::Null) => return Route::Own,
         Some(Value::String(text)) => text.as_str(),
@@ -178,6 +178,12 @@ fn optional(scope: &Scope<'_>, expr: Option<&Expr>) -> Result<Option<Value>, Fai
     expr.map(|expr| evaluate(scope, expr)).transpose()
 }
 
+/// A resolved argument as a send carries it: null is one spelling of an
+/// argument not written, as the reference reads nil, so it answers `None`.
+fn present(value: Option<Value>) -> Option<Value> {
+    value.filter(|value| !matches!(value, Value::Null))
+}
+
 /// The event's data: the `<content>`'s, when the `<send>` has one (text
 /// read as [`event_data::text`] reads it, an expression's value as it is),
 /// else the `namelist` and `<param>` values, the first failure stopping.
@@ -203,9 +209,9 @@ pub(super) fn send(
     node: &Send,
 ) -> Result<(), Failure> {
     let scope = scope(site, &run.data);
-    let event = optional(&scope, node.event.as_ref())?;
-    let target = optional(&scope, node.target.as_ref())?;
-    let send_type = optional(&scope, node.send_type.as_ref())?;
+    let event = present(optional(&scope, node.event.as_ref())?);
+    let target = present(optional(&scope, node.target.as_ref())?);
+    let send_type = present(optional(&scope, node.send_type.as_ref())?);
     let delay_ms = match &node.delay {
         Some(expr) => Some(delay::milliseconds(&evaluate(&scope, expr)?)?),
         None => None,

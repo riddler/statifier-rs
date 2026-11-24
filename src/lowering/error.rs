@@ -13,11 +13,13 @@ pub(crate) const MAX_DEPTH: usize = 128;
 pub enum Reason {
     /// An element in SCXML's vocabulary that no builder reads, named as
     /// written.
+    #[non_exhaustive]
     UnsupportedElement {
         /// The qualified name as written.
         name: String,
     },
     /// A lowered element its parent has no slot for.
+    #[non_exhaustive]
     MisplacedElement {
         /// The element's name: its slot's, or its own for executable content.
         name: String,
@@ -25,16 +27,19 @@ pub enum Reason {
         parent: String,
     },
     /// Text that is not blank where the content model has no room for it.
+    #[non_exhaustive]
     StrayText {
         /// The run, trimmed.
         text: String,
     },
     /// A root element other than `<scxml>`.
+    #[non_exhaustive]
     UnexpectedRoot {
         /// The root's local name.
         name: String,
     },
     /// A required attribute that is absent.
+    #[non_exhaustive]
     MissingAttribute {
         /// The element's name.
         element: &'static str,
@@ -42,6 +47,7 @@ pub enum Reason {
         attribute: &'static str,
     },
     /// An element whose name resolves to a namespace that is not SCXML's.
+    #[non_exhaustive]
     ForeignElement {
         /// The qualified name as written.
         name: String,
@@ -49,6 +55,7 @@ pub enum Reason {
         uri: String,
     },
     /// An attribute on an element that takes none.
+    #[non_exhaustive]
     UnexpectedAttribute {
         /// The element's name.
         element: &'static str,
@@ -57,6 +64,7 @@ pub enum Reason {
     },
     /// An attribute the specification defines and this engine does not act
     /// on.
+    #[non_exhaustive]
     UnsupportedAttribute {
         /// The element's name.
         element: &'static str,
@@ -64,6 +72,7 @@ pub enum Reason {
         attribute: &'static str,
     },
     /// An element nested more than 128 elements below the root.
+    #[non_exhaustive]
     NestingTooDeep {
         /// The qualified name as written.
         name: String,

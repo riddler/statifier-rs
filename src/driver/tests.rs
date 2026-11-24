@@ -1,0 +1,512 @@
+use super::*;
+use crate::Key;
+
+const OPEN: &str = r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0""#;
+
+fn machine(attributes: &str, body: &str) -> Machine {
+    let text = format!("{OPEN}{attributes}>{body}</scxml>");
+    match crate::compile(&text) {
+        Ok(machine) => machine,
+        Err(refusals) => panic!("{text}: {refusals:#?}"),
+    }
+}
+
+fn start(attributes: &str, body: &str) -> Moved {
+    machine(attributes, body)
+        .start(Options::new("s-1"))
+        .expect("a start")
+}
+
+fn budget(rounds: u64) -> RoundBudget {
+    RoundBudget::Rounds(NonZeroU64::new(rounds).expect("a budget above zero"))
+}
+
+// Every `<log>`'s label and value, in order.
+fn logs(effects: &[Effect]) -> Vec<(String, Value)> {
+    effects
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Log { label, value, .. } => Some((
+                label.clone().unwrap_or_default(),
+                value.clone().unwrap_or(Value::Undefined),
+            )),
+            _ => None,
+        })
+        .collect()
+}
+
+fn labels(effects: &[Effect]) -> Vec<String> {
+    logs(effects).into_iter().map(|(label, _)| label).collect()
+}
+
+fn text(value: &str) -> Value {
+    Value::from(value)
+}
+
+// Sabotage: with `ids` leaving the ids in document order, this goes red.
+#[test]
+fn start_answers_the_active_state_ids_sorted_root_and_unnamed_left_out() {
+    let started = start(
+        r#" initial="p""#,
+        r#"<parallel id="p"><state id="z"/><state id="b"/><state><state id="m"/></state></parallel>"#,
+    );
+    assert_eq!(started.state.configuration(), ["b", "m", "p", "z"]);
+    assert!(started.state.done().is_none());
+}
+
+// Sabotage: with `step` moving the state it was given in place (a field
+// written through a shared value), the first assertion goes red.
+#[test]
+fn step_answers_a_new_state_and_leaves_the_one_it_was_given() {
+    let started = start(
+        r#" initial="a""#,
+        r#"<state id="a"><transition event="e.go" target="b"/></state><state id="b"/>"#,
+    );
+    let moved = started.state.step("e.go", Value::Undefined).unwrap();
+    assert_eq!(started.state.configuration(), ["a"]);
+    assert_eq!(moved.state.configuration(), ["b"]);
+    let again = started.state.step("e.go", Value::Undefined).unwrap();
+    assert_eq!(again.state.configuration(), ["b"]);
+}
+
+// Sabotage: with `perform_one` not recording the `Done` effect, `done` stays
+// `None` and the step after it is not refused.
+#[test]
+fn a_stopped_chart_answers_its_donedata_and_refuses_another_event() {
+    let started = start(
+        r#" initial="a""#,
+        r#"<state id="a"><transition event="e.go" target="f"/></state>
+           <final id="f"><donedata><content expr="'x' + 'y'"/></donedata></final>"#,
+    );
+    let moved = started.state.step("e.go", Value::Undefined).unwrap();
+    let done = moved.state.done().expect("a stopped chart");
+    assert_eq!(done.donedata, text("xy"));
+    assert_eq!(done.configuration, ["f"]);
+    assert!(moved.state.configuration().is_empty());
+    assert_eq!(
+        moved.state.step("e.go", Value::Undefined).unwrap_err(),
+        Error::NotRunning
+    );
+}
+
+// Sabotage: with `is_built_in` answering false, start is not refused.
+#[test]
+fn start_refuses_a_built_in_send_type() {
+    let mut options = Options::new("s-1");
+    options.send_types = [SCXML_EVENT_PROCESSOR, "x-a", "scxml"]
+        .into_iter()
+        .map(String::from)
+        .collect();
+    let refused = Error::BuiltInSendTypes {
+        types: vec![SCXML_EVENT_PROCESSOR.to_owned(), "scxml".to_owned()],
+    };
+    assert_eq!(
+        machine("", r#"<state id="a"/>"#).start(options).err(),
+        Some(refused.clone())
+    );
+    assert!(refused.to_string().contains("scxml"));
+    let error: &dyn std::error::Error = &refused;
+    assert!(error.source().is_none());
+}
+
+// Sabotage: with `start` dropping the host's datamodel, or `step` dropping
+// the event's data, the values read back differ.
+#[test]
+fn host_values_pass_through_unchanged() {
+    let machine = machine(
+        r#" initial="a""#,
+        r#"<datamodel><data id="x" expr="1"/></datamodel>
+           <state id="a"><transition event="e.go" target="a">
+             <log label="data" expr="_event.data"/><log label="x" expr="x"/>
+           </transition></state>"#,
+    );
+    let mut options = Options::new("s-1");
+    let mut datamodel = Map::new();
+    let mut inner = Map::new();
+    inner.insert("k", Value::List(vec![Value::from(1.5), Value::Null]));
+    datamodel.insert("x", Value::Map(inner.clone()));
+    options.datamodel = datamodel;
+    let started = machine.start(options).unwrap();
+    let Some(Effect::DatamodelInit { datamodel, .. }) = started.effects.first() else {
+        panic!("{:#?}", started.effects);
+    };
+    assert_eq!(
+        datamodel.get(&Key::from("x")),
+        Some(&Value::Map(inner.clone()))
+    );
+    let data = Value::List(vec![text("p"), Value::Map(inner.clone())]);
+    let moved = started.state.step("e.go", data.clone()).unwrap();
+    assert_eq!(
+        logs(&moved.effects),
+        [
+            (String::from("data"), data),
+            (String::from("x"), Value::Map(inner))
+        ]
+    );
+}
+
+// Sabotage: with `route` dropping a send with no target, or one to the
+// session's own address, the second state is never entered.
+#[test]
+fn a_send_to_the_session_itself_is_taken_as_an_external_event() {
+    for target in ["", r##" target="#_scxml_s-1""##] {
+        let started = start(
+            r#" initial="a""#,
+            &format!(
+                r#"<state id="a"><onentry><send event="e.self" id="k"{target}/></onentry>
+                   <transition event="e.self" target="b">
+                     <log label="origin" expr="_event.origin"/>
+                     <log label="type" expr="_event.origintype"/>
+                     <log label="sendid" expr="_event.sendid"/>
+                     <log label="eventtype" expr="_event.type"/>
+                   </transition></state><state id="b"/>"#
+            ),
+        );
+        assert_eq!(started.state.configuration(), ["b"], "{target}");
+        assert_eq!(
+            logs(&started.effects),
+            [
+                (String::from("origin"), text("#_scxml_s-1")),
+                (String::from("type"), text(SCXML_EVENT_PROCESSOR)),
+                (String::from("sendid"), text("k")),
+                (String::from("eventtype"), text("external")),
+            ]
+        );
+    }
+}
+
+// Sabotage: with `deliver_internal`'s effects acted on at once rather than
+// after the batch, the log order changes.
+#[test]
+fn an_internal_send_runs_the_chart_after_the_batch_that_sent_it() {
+    let started = start(
+        r#" initial="a""#,
+        r##"<state id="a"><onentry><send event="e.in" target="#_internal"/><log label="after"/></onentry>
+           <transition event="e.in" target="b"><log label="taken"/>
+             <log label="type" expr="_event.type"/></transition></state><state id="b"/>"##,
+    );
+    assert_eq!(started.state.configuration(), ["b"]);
+    assert_eq!(
+        logs(&started.effects),
+        [
+            (String::from("after"), Value::Undefined),
+            (String::from("taken"), Value::Undefined),
+            (String::from("type"), text("internal")),
+        ]
+    );
+}
+
+// Sabotage: with `next_due` ignoring the sequence among equal due times, or
+// `advance` firing a timer not yet due, the order or the count changes.
+#[test]
+fn advance_fires_due_timers_earliest_first_then_in_scheduled_order() {
+    let started = start(
+        r#" initial="a""#,
+        r#"<state id="a"><onentry>
+             <send event="e.two" delay="20ms"/><send event="e.one" delay="10ms"/>
+             <send event="e.three" delay="20ms"/><send event="e.four" delay="30ms"/>
+           </onentry>
+           <transition event="*"><log label="got" expr="_event.name"/></transition></state>"#,
+    );
+    assert_eq!(started.state.next_due_ms(), Some(10));
+    let first = started.state.advance(20).unwrap();
+    assert_eq!(first.state.now_ms(), 20);
+    assert_eq!(
+        logs(&first.effects),
+        [
+            (String::from("got"), text("e.one")),
+            (String::from("got"), text("e.two")),
+            (String::from("got"), text("e.three")),
+        ]
+    );
+    assert_eq!(first.state.next_due_ms(), Some(30));
+    assert_eq!(started.state.next_due_ms(), Some(10));
+    let second = first.state.advance(9).unwrap();
+    assert!(second.effects.is_empty());
+    let third = second.state.advance(1).unwrap();
+    assert_eq!(labels(&third.effects), ["got"]);
+    assert_eq!(third.state.next_due_ms(), None);
+}
+
+// Sabotage: with the `Cancel` arm keeping every timer, the cancelled send
+// fires.
+#[test]
+fn a_cancel_removes_the_pending_timer_it_names() {
+    let started = start(
+        r#" initial="a""#,
+        r#"<state id="a"><onentry><send event="e.late" id="t" delay="1s"/>
+           <send event="e.stop" delay="5ms"/></onentry>
+           <transition event="e.stop"><cancel sendid="t"/></transition>
+           <transition event="e.late" target="b"/></state><state id="b"/>"#,
+    );
+    let moved = started.state.advance(5).unwrap();
+    assert_eq!(moved.state.next_due_ms(), None);
+    let later = moved.state.advance(5_000).unwrap();
+    assert_eq!(later.state.configuration(), ["a"]);
+}
+
+// Sabotage: with `registered` answering false, the registered send is
+// routed to the session itself and the chart moves to `b`.
+#[test]
+fn a_send_of_a_registered_type_is_answered_as_an_effect_and_never_routed() {
+    let machine = machine(
+        r#" initial="a""#,
+        r#"<state id="a"><onentry>
+             <send event="e.out" type="x-host"/><send event="e.out" type="x-host" delay="1s"/>
+             <log label="entry" expr="_ioprocessors['x-host']"/>
+           </onentry><transition event="e.out" target="b"/></state><state id="b"/>"#,
+    );
+    let mut options = Options::new("s-1");
+    options.send_types = BTreeSet::from([String::from("x-host")]);
+    let started = machine.start(options).unwrap();
+    assert_eq!(started.state.configuration(), ["a"]);
+    assert_eq!(started.state.next_due_ms(), None);
+    let sends = started
+        .effects
+        .iter()
+        .filter(|effect| {
+            matches!(effect, Effect::Send { send_type: Some(t), .. } | Effect::SendDelayed { send_type: Some(t), .. } if *t == text("x-host"))
+        })
+        .count();
+    assert_eq!(sends, 2);
+    assert_eq!(
+        logs(&started.effects),
+        [(String::from("entry"), Value::Map(Map::new()))]
+    );
+}
+
+// Sabotage: with an unreachable fired send dropped rather than raising
+// `error.communication`, the chart stays in `a`.
+#[test]
+fn a_delayed_send_to_an_unreachable_target_raises_error_communication_when_it_fires() {
+    let started = start(
+        r#" initial="a""#,
+        r##"<state id="a"><onentry><send event="e.up" id="k" target="#_parent" delay="1ms"/></onentry>
+           <transition event="error.communication" target="b">
+             <log label="sendid" expr="_event.sendid"/></transition></state><state id="b"/>"##,
+    );
+    assert_eq!(started.state.configuration(), ["a"]);
+    let moved = started.state.advance(1).unwrap();
+    assert_eq!(moved.state.configuration(), ["b"]);
+    assert_eq!(logs(&moved.effects), [(String::from("sendid"), text("k"))]);
+}
+
+// Sabotage: with the fired `#_internal` arm queuing on the external queue,
+// the event's type reads `external`.
+#[test]
+fn a_fired_internal_send_is_delivered_onto_the_internal_queue() {
+    let started = start(
+        r#" initial="a""#,
+        r##"<state id="a"><onentry><send event="e.in" targetexpr="'#_internal'" delay="1ms"/></onentry>
+           <transition event="e.in" target="b"><log label="type" expr="_event.type"/></transition>
+           </state><state id="b"/>"##,
+    );
+    let moved = started.state.advance(1).unwrap();
+    assert_eq!(moved.state.configuration(), ["b"]);
+    assert_eq!(
+        logs(&moved.effects),
+        [(String::from("type"), text("internal"))]
+    );
+}
+
+// Sabotage: with `admits` allowing more counted events than the budget, the
+// halt comes at a later macrostep.
+#[test]
+fn a_call_halts_when_the_events_it_sends_itself_spend_the_budget() {
+    let machine = machine(
+        r#" initial="a""#,
+        r#"<state id="a"><onentry><send event="e.loop"/></onentry>
+           <transition event="e.loop" target="a"/>
+           <transition event="e.host" target="b"/></state><state id="b"/>"#,
+    );
+    let mut options = Options::new("s-1");
+    options.round_budget = budget(3);
+    let started = machine.start(options).unwrap();
+    let Some(Effect::BudgetExhausted {
+        budget, macrostep, ..
+    }) = started.effects.last()
+    else {
+        panic!("{:#?}", started.effects);
+    };
+    assert_eq!(*budget, 3);
+    // The start is macrostep 1, and each of the three events taken one more.
+    assert_eq!(*macrostep, 4);
+    // Halted: a host event is queued, not taken.
+    let moved = started.state.step("e.host", Value::Undefined).unwrap();
+    assert!(moved.effects.is_empty());
+    assert_eq!(moved.state.configuration(), ["a"]);
+}
+
+// Sabotage: with `admits` always true for an internal send, the start never
+// returns.
+#[test]
+fn a_call_halts_when_its_internal_sends_spend_the_budget() {
+    let machine = machine(
+        r#" initial="a""#,
+        r##"<state id="a"><onentry><send event="e.loop" target="#_internal"/></onentry>
+           <transition event="e.loop" target="a"/></state>"##,
+    );
+    let mut options = Options::new("s-1");
+    options.round_budget = budget(2);
+    let started = machine.start(options).unwrap();
+    let exhausted: Vec<&Effect> = started
+        .effects
+        .iter()
+        .filter(|effect| matches!(effect, Effect::BudgetExhausted { .. }))
+        .collect();
+    assert_eq!(exhausted.len(), 1);
+    let Effect::BudgetExhausted {
+        pending_internal_events,
+        ..
+    } = exhausted[0]
+    else {
+        unreachable!()
+    };
+    assert_eq!(pending_internal_events.len(), 1);
+}
+
+// Sabotage: with a macrostep's `BudgetExhausted` not halting the driver, the
+// host event is taken and the chart moves to `b`.
+#[test]
+fn a_macrostep_that_spends_its_budget_halts_the_driver_and_timers_still_fire() {
+    let machine = machine(
+        r#" initial="a""#,
+        r#"<state id="a"><onentry><raise event="e.r"/><send event="e.t" delay="1ms"/></onentry>
+           <transition event="e.r" target="a"/>
+           <transition event="e.host" target="b"/>
+           <transition event="e.t"><log label="fired"/></transition></state><state id="b"/>"#,
+    );
+    let mut options = Options::new("s-1");
+    options.round_budget = budget(4);
+    let started = machine.start(options).unwrap();
+    assert!(matches!(
+        started.effects.last(),
+        Some(Effect::BudgetExhausted { .. })
+    ));
+    let moved = started.state.step("e.host", Value::Undefined).unwrap();
+    assert_eq!(moved.state.configuration(), ["a"]);
+    assert!(moved.state.next_due_ms().is_some());
+    let fired = moved.state.advance(1).unwrap();
+    assert_eq!(fired.state.next_due_ms(), None);
+    // The fired event is queued, as the host event is: a halted driver takes
+    // none.
+    assert!(logs(&fired.effects).is_empty());
+}
+
+// Sabotage: with `checked_add` replaced by a saturating add, no refusal.
+#[test]
+fn advance_refuses_a_duration_past_the_clock_and_moves_a_stopped_chart_only_in_time() {
+    let started = start(r#" initial="a""#, r#"<state id="a"/>"#);
+    let later = started.state.advance(10).unwrap();
+    assert_eq!(
+        later.state.advance(u64::MAX).unwrap_err(),
+        Error::InvalidDuration { ms: u64::MAX }
+    );
+    assert!(
+        Error::InvalidDuration { ms: 1 }
+            .to_string()
+            .contains("1 ms")
+    );
+
+    let stopped = start(r#" initial="f""#, r#"<final id="f"/>"#);
+    assert!(stopped.state.done().is_some());
+    let moved = stopped.state.advance(7).unwrap();
+    assert_eq!(moved.state.now_ms(), 7);
+    assert!(moved.effects.is_empty());
+}
+
+// Sabotage: with `Done` not clearing the timers, a timer stays pending after
+// the chart stopped.
+#[test]
+fn a_chart_that_stops_discards_its_timers_and_its_queued_events() {
+    let started = start(
+        r#" initial="a""#,
+        r#"<state id="a"><onentry><send event="e.late" delay="1s"/><send event="e.now"/>
+           <send event="e.now"/></onentry>
+           <transition event="e.now" target="f"/></state><final id="f"/>"#,
+    );
+    let done = started.state.done().expect("stopped");
+    assert_eq!(done.configuration, ["f"]);
+    assert_eq!(done.donedata, Value::Undefined);
+    assert_eq!(started.state.next_due_ms(), None);
+    assert!(started.state.external_queue.is_empty());
+}
+
+// Sabotage: with `present` keeping a null, the send's target is
+// `Some(Value::Null)`.
+#[test]
+fn a_null_target_is_carried_as_no_target() {
+    let machine = machine(
+        r#" initial="a""#,
+        r#"<state id="a"><onentry><send event="e.out" typeexpr="'x-host'" targetexpr="null"/></onentry></state>"#,
+    );
+    let mut options = Options::new("s-1");
+    options.send_types = BTreeSet::from([String::from("x-host")]);
+    let started = machine.start(options).unwrap();
+    let target = started.effects.iter().find_map(|effect| match effect {
+        Effect::Send { target, .. } => Some(target.clone()),
+        _ => None,
+    });
+    assert_eq!(target, Some(None));
+}
+
+#[test]
+fn the_round_budget_defaults_to_the_reference_and_converts() {
+    assert_eq!(RoundBudget::default(), budget(DEFAULT_ROUNDS));
+    assert_eq!(
+        RoundBudget::Unbounded.interpreter(),
+        interpreter::RoundBudget::Unbounded
+    );
+    assert!(RoundBudget::Unbounded.admits(u64::MAX));
+    assert_eq!(RoundBudget::Unbounded.spent(), u64::MAX);
+    let options = Options::new("s-1");
+    assert_eq!(options.round_budget, RoundBudget::default());
+    assert!(!options.trace);
+    assert!(Error::NotRunning.to_string().contains("stopped"));
+}
+
+// Sabotage: with `start` ignoring an unbounded budget (a bound of 1), the
+// eventless chain stops early and `c` is not reached.
+#[test]
+fn an_unbounded_budget_lets_a_long_macrostep_finish() {
+    let machine = machine(
+        r#" initial="a""#,
+        r#"<state id="a"><transition target="b"/></state><state id="b"><transition target="c"/></state><state id="c"/>"#,
+    );
+    let mut options = Options::new("s-1");
+    options.round_budget = RoundBudget::Unbounded;
+    assert_eq!(machine.start(options).unwrap().state.configuration(), ["c"]);
+}
+
+// No driver call panics on a chart the corpus holds: each is started,
+// sent an event and advanced past its timers, and each answer is a value.
+// Sabotage: with `next_due` answering a position past the end, `remove`
+// panics and this goes red.
+#[test]
+fn every_corpus_chart_starts_steps_and_advances_without_a_panic() {
+    for (name, bytes) in crate::testing::corpus_documents() {
+        let Ok(source) = String::from_utf8(bytes) else {
+            continue;
+        };
+        let Ok(machine) = crate::compile(&source) else {
+            continue;
+        };
+        let mut options = Options::new("s-1");
+        options.round_budget = budget(100);
+        let started = machine
+            .start(options)
+            .unwrap_or_else(|error| panic!("{name}: {error}"));
+        let stepped = match started.state.step("e.go", Value::Undefined) {
+            Ok(moved) => moved.state,
+            Err(Error::NotRunning) => started.state,
+            Err(error) => panic!("{name}: {error}"),
+        };
+        let advanced = stepped
+            .advance(10_000)
+            .unwrap_or_else(|error| panic!("{name}: {error}"));
+        assert!(
+            advanced.state.next_due_ms().is_none_or(|due| due > 10_000),
+            "{name}"
+        );
+    }
+}

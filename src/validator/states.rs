@@ -2,7 +2,7 @@
 //! transitions, histories, finals and default entry.
 
 use super::context::{Context, is_compound, kind_name};
-use super::finding::{Owner, Reason, ValidationError};
+use super::finding::{DefaultTransitionOwner, Reason, ValidationError};
 use crate::document::{Document, State, StateKind, Transition};
 use crate::xml::Location;
 use std::collections::HashSet;
@@ -188,7 +188,7 @@ pub(super) fn initial_elements(
             ));
         }
         errors.extend(default_transition(
-            &Owner::Initial(state.id.clone()),
+            &DefaultTransitionOwner::Initial(state.id.clone()),
             &initial.transitions,
             initial.location,
         ));
@@ -200,7 +200,7 @@ pub(super) fn initial_elements(
 // transition, with a target, and no `event` or `cond`. A written `event` is
 // told from an absent one by its location, since both lower to no events.
 fn default_transition(
-    owner: &Owner,
+    owner: &DefaultTransitionOwner,
     transitions: &[Transition],
     owner_location: Location,
 ) -> Vec<ValidationError> {
@@ -270,7 +270,7 @@ pub(super) fn histories(_document: &Document, context: &Context<'_>) -> Vec<Vali
             ));
         }
         errors.extend(default_transition(
-            &Owner::History(state.id.clone()),
+            &DefaultTransitionOwner::History(state.id.clone()),
             &state.transitions,
             state.location,
         ));
