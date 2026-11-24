@@ -11,10 +11,17 @@
 //! `error.execution` whose origin is that node, or, for a failure inside an
 //! `<if>` or a `<foreach>`, the top-level node holding it, its failure then
 //! naming the inner node ([`Failure::Nested`]). A failing leaf keeps
-//! nothing; an `<if>` or a `<foreach>` keeps what its nodes wrote and
-//! raised, though not their effects; a `<script>` keeps the writes its
-//! program made before it stopped. Each block is independent: one that
-//! fails leaves every other to run.
+//! nothing, apart from a `<send>` refused for its type or its target,
+//! which keeps its minted send id and its `idlocation` write; an `<if>` or
+//! a `<foreach>` keeps what its nodes wrote and raised, though not their
+//! effects; a `<script>` keeps the writes its program made before it
+//! stopped. Each block is independent: one that fails leaves every other to
+//! run.
+//!
+//! A refused `<send>` at the top of a block raises `error.execution` or
+//! `error.communication` carrying its send id ([`Failure::event`]); one
+//! nested inside an `<if>` or a `<foreach>` raises `error.execution` naming
+//! the inner node, as the reference raises it.
 //!
 //! An `<if>` condition that fails, or answers something other than true or
 //! false, does not stop the block: its branch is passed over, and its
@@ -26,8 +33,11 @@
 //! raised, in the order they join the internal queue, beside its effects;
 //! the step that called it queues them.
 
+mod send;
 #[cfg(test)]
 mod tests;
+
+pub(crate) use send::{Routes, Sends};
 
 use crate::datamodel::location::write_location;
 use crate::datamodel::{Failure, Scope, evaluate, evaluate_cond, evaluate_deferred, execute};
@@ -48,7 +58,8 @@ pub(crate) struct Counters {
 }
 
 /// Where a block runs: the chart, the configuration `In()` reads, the
-/// block's owner and the counters its effects carry.
+/// block's owner, the counters its effects carry, and what a `<send>` is
+/// judged against.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Site<'a> {
     /// The chart whose content runs.
@@ -59,10 +70,16 @@ pub(crate) struct Site<'a> {
     pub(crate) owner: BlockOwner,
     /// The counters.
     pub(crate) counters: Counters,
+    /// The send types the host registered a processor for.
+    pub(crate) send_types: &'a BTreeSet<String>,
+    /// The routes the driver declared reachable, `None` when it declared
+    /// none: then no immediate send is refused for its route.
+    pub(crate) routes: Option<&'a Routes>,
 }
 
-/// An event a block raised onto the internal queue. Its origin is the
-/// top-level node `content` of the block that raised it.
+/// An event a block raised onto the internal queue, with its origin: a
+/// `<raise>`'s event is the `<raise>` node itself, wherever it sits, and a
+/// failure's error is the top-level node of the block it stopped.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Raised {
     /// A `<raise>`: an internal event with no data.
@@ -87,6 +104,8 @@ pub(crate) enum Raised {
 pub(crate) struct Ran {
     /// The datamodel it leaves.
     pub(crate) data: Map,
+    /// The send and timer counters it leaves.
+    pub(crate) sends: Sends,
     /// Its effects, in the order its nodes made them.
     pub(crate) effects: Vec<Effect>,
     /// The events it raised, in queue order.
@@ -99,16 +118,18 @@ pub(crate) struct Ran {
 /// What a block threads from node to node.
 struct Run {
     data: Map,
+    sends: Sends,
     effects: Vec<Effect>,
     raised: Vec<Raised>,
     pending: Vec<Failure>,
 }
 
-/// Runs the nodes `content` names, in document order, against `data`,
-/// stopping at the first that fails.
-pub(crate) fn execute_block(site: &Site<'_>, data: Map, content: &[usize]) -> Ran {
+/// Runs the nodes `content` names, in document order, against `data` and
+/// the send and timer counters `sends`, stopping at the first that fails.
+pub(crate) fn execute_block(site: &Site<'_>, data: Map, sends: Sends, content: &[usize]) -> Ran {
     let mut run = Run {
         data,
+        sends,
         effects: Vec::new(),
         raised: Vec::new(),
         pending: Vec::new(),
@@ -133,6 +154,7 @@ pub(crate) fn execute_block(site: &Site<'_>, data: Map, content: &[usize]) -> Ra
     }
     Ran {
         data: run.data,
+        sends: run.sends,
         effects: run.effects,
         raised: run.raised,
         executed,
@@ -160,9 +182,11 @@ fn node(site: &Site<'_>, run: &mut Run, index: usize) -> Result<(), Failure> {
             run.data = executed.data;
             executed.failure.map_or(Ok(()), Err)
         }
-        // `<send>` and `<cancel>` are not run here yet, and an index the
-        // compiler never interned names no node: either runs as nothing.
-        Some(Content::Send(_) | Content::Cancel { .. }) | None => Ok(()),
+        Some(Content::Send(node)) => send::send(site, run, index, node),
+        Some(Content::Cancel { sendid, .. }) => send::cancel(site, run, index, sendid.as_ref()),
+        // An index the compiler never interned names no node: it runs as
+        // nothing.
+        None => Ok(()),
     };
     if outcome.is_err() {
         run.effects.truncate(effects);

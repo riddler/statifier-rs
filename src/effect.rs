@@ -73,8 +73,122 @@ pub enum Effect {
         /// The index of the executable-content node that made the write;
         /// `None` for a write made outside executable content.
         content_index: Option<usize>,
-        /// The block the write ran in; `None` for a write made outside one.
+        /// The block the write ran in; `None` for a `<data>` binding and for
+        /// the value an empty `<finalize>` assigns, which no block makes.
         owner: Option<BlockOwner>,
+        /// The macrostep counter when it ran.
+        macrostep: u64,
+        /// The microstep counter when it ran.
+        microstep: u64,
+        /// The round counter when it ran.
+        round: u64,
+    },
+    /// A `<send>` with no delay ran: a message for the host to deliver now.
+    ///
+    /// Every target is an effect, the session's own internal queue
+    /// (`#_internal`) included: the host routes the message, so an internal
+    /// send comes back to the chart as the host delivers it. A send the
+    /// chart refused for its type or its target answers no effect: it
+    /// raises `error.execution` or `error.communication` instead.
+    #[non_exhaustive]
+    Send {
+        /// The event's name, as `event` or `eventexpr` gave it; `None` when
+        /// neither was written.
+        event: Option<Value>,
+        /// The target, as `target` or `targetexpr` gave it; `None` when
+        /// neither was written, which is the session itself. For a type the
+        /// host registered, it is the host processor's own route and is
+        /// never read here.
+        target: Option<Value>,
+        /// The type, as `type` or `typeexpr` gave it; `None` when neither
+        /// was written, which is the SCXML Event I/O Processor.
+        send_type: Option<Value>,
+        /// The event's data: the `<content>`'s value when the `<send>` has
+        /// one, else the `namelist` and `<param>` values as a map of name
+        /// to value (the last of a repeated name kept), else
+        /// [`Value::Undefined`].
+        data: Value,
+        /// The send id: the `id` attribute as written, else one generated,
+        /// `send_` and the session's send counter.
+        send_id: String,
+        /// Whether the document named the send (an `id` or an
+        /// `idlocation`), rather than the id being generated: an event the
+        /// send delivers carries its send id only when it did.
+        id_from_author: bool,
+        /// The session's timer counter after this send advanced it, which
+        /// it does only for a type the host registered; `None` for the
+        /// SCXML Event I/O Processor's types. It tells apart two sends that
+        /// share every other field, as two iterations of a `<foreach>` do.
+        ordinal: Option<u64>,
+        /// The index of the `<send>` among the chart's executable-content
+        /// nodes, in document order.
+        content_index: usize,
+        /// The block the `<send>` ran in.
+        owner: BlockOwner,
+        /// The macrostep counter when it ran.
+        macrostep: u64,
+        /// The microstep counter when it ran.
+        microstep: u64,
+        /// The round counter when it ran.
+        round: u64,
+    },
+    /// A `<send>` with a delay ran: a message for the host to deliver once
+    /// the delay has passed, unless a `<cancel>` names its send id first.
+    /// It carries what [`Effect::Send`] does, and the delay.
+    #[non_exhaustive]
+    SendDelayed {
+        /// The event's name, as `event` or `eventexpr` gave it; `None` when
+        /// neither was written.
+        event: Option<Value>,
+        /// The target, as `target` or `targetexpr` gave it; `None` when
+        /// neither was written. It is judged when the delay has passed,
+        /// not here, apart from a target that names nothing the SCXML Event
+        /// I/O Processor carries, which is refused now.
+        target: Option<Value>,
+        /// The type, as `type` or `typeexpr` gave it; `None` when neither
+        /// was written.
+        send_type: Option<Value>,
+        /// The event's data, as [`Effect::Send`]'s `data`.
+        data: Value,
+        /// The send id a `<cancel>` names it by: the `id` attribute as
+        /// written, else one generated.
+        send_id: String,
+        /// Whether the document named the send (an `id` or an
+        /// `idlocation`).
+        id_from_author: bool,
+        /// The delay in whole milliseconds, as `delay` or `delayexpr` gave
+        /// it.
+        delay_ms: i64,
+        /// The session's timer counter after this send advanced it: every
+        /// delayed send advances it.
+        ordinal: u64,
+        /// The index of the `<send>` among the chart's executable-content
+        /// nodes, in document order.
+        content_index: usize,
+        /// The block the `<send>` ran in.
+        owner: BlockOwner,
+        /// The macrostep counter when it ran, not when the delay passes.
+        macrostep: u64,
+        /// The microstep counter when it ran.
+        microstep: u64,
+        /// The round counter when it ran.
+        round: u64,
+    },
+    /// A `<cancel>` ran: the host drops the delayed send it names, if one
+    /// is still pending. A send id that names nothing pending is not an
+    /// error.
+    #[non_exhaustive]
+    Cancel {
+        /// The send id, as `sendid` or `sendidexpr` gave it.
+        send_id: Value,
+        /// The session's timer counter after this cancel advanced it: every
+        /// cancel advances it.
+        ordinal: u64,
+        /// The index of the `<cancel>` among the chart's
+        /// executable-content nodes, in document order.
+        content_index: usize,
+        /// The block the `<cancel>` ran in.
+        owner: BlockOwner,
         /// The macrostep counter when it ran.
         macrostep: u64,
         /// The microstep counter when it ran.

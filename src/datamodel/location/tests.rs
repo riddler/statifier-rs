@@ -68,7 +68,9 @@ fn resolves_a_root_a_dotted_path_an_index_and_a_name_index() {
 // Sabotage: with bracket reading a computed bracket as a bare name, a
 // computed key reads as an undefined name and this fails; with escape
 // letting a numeric escape through, `a['\u0041']` is a computed key and
-// this fails.
+// this fails; with root_literal skipping the escaped character unread, as
+// before it read escapes, `'\u'[k]` resolves its key and fails on the
+// undefined `k` and this fails.
 #[test]
 fn refuses_what_is_not_a_location() {
     let data = data(&[("a", Value::Null), ("f", Value::from(1.5))]);
@@ -81,7 +83,7 @@ fn refuses_what_is_not_a_location() {
             "{source}"
         );
     }
-    for source in [r"a['\u0041']", r"a['\U']", r"'\u'.b"] {
+    for source in [r"a['\u0041']", r"a['\U']", r"'\u'[k]"] {
         assert_eq!(
             reason(&data, source),
             LocationReason::NotAssignable,
