@@ -1,6 +1,6 @@
 [package]
 name = "statifier"
-version = "0.0.0"
+version = "0.1.0"
 edition = "2024"
 # The oldest Rust this crate supports; it matches the floor the predicator
 # crate (predicator-rs 0.1.0) declares.

@@ -33,9 +33,7 @@ statifier = "0.1"
 ```
 
 The crate is `statifier` on crates.io and the library is imported as
-`statifier`. It is not published yet: a `0.0.0` release will hold the name
-and the first real release is `0.1.0`, so until then depend on the
-repository by path or git. The optional `serde` feature is off by default;
+`statifier`. The optional `serde` feature is off by default;
 turn it on with `statifier = { version = "0.1", features = ["serde"] }`. The
 optional `basichttp` feature is off by default too.
 
