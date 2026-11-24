@@ -33,14 +33,20 @@ fn run(onentry: &str, roots: &[(&str, Value)]) -> (Ran, Vec<usize>) {
     let chart = machine.chart();
     let state = chart.id_to_index["s"];
     let configuration: BTreeSet<usize> = [state].into_iter().collect();
+    let send_types = BTreeSet::new();
     let site = Site {
         chart,
         configuration: &configuration,
         owner: BlockOwner::OnEntry { state, ordinal: 0 },
         counters: COUNTERS,
+        send_types: &send_types,
+        routes: None,
     };
     let content = chart.states[state].onentry[0].content.clone();
-    (execute_block(&site, data(roots), &content), content)
+    (
+        execute_block(&site, data(roots), Sends::default(), &content),
+        content,
+    )
 }
 
 fn get<'a>(ran: &'a Ran, root: &str) -> Option<&'a Value> {
@@ -232,10 +238,11 @@ fn a_failed_if_condition_is_passed_over_and_raised_after_the_node() {
 }
 
 // Sabotage: with node keeping a failing composite node's effects, the log
-// inside the `<if>` survives and this fails.
+// inside the `<if>` survives and this fails; with nested naming index 0,
+// the inner index differs and this fails.
 #[test]
 fn a_failure_inside_an_if_names_the_inner_node_and_keeps_its_writes() {
-    let (ran, _) = run(
+    let (ran, top) = run(
         r#"<if cond="true"><assign location="x" expr="5"/><log expr="x"/><raise event="e.in"/>
            <log expr="nowhere"/></if><raise event="e.after"/>"#,
         &[("x", Value::from(0))],
@@ -255,7 +262,9 @@ fn a_failure_inside_an_if_names_the_inner_node_and_keeps_its_writes() {
         ran.data.get(&Key::from("x")),
         Some(Value::Integer(5))
     ));
-    let _ = content;
+    // The failing `<log>` is the fourth node of the `<if>`'s one branch,
+    // and a container is interned before its children.
+    assert_eq!(*content, top[0] + 4);
 }
 
 // Sabotage: with foreach binding the index from 1, the logged indexes shift

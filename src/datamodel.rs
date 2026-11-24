@@ -16,6 +16,7 @@
 //! ([`Failure::event`]).
 
 pub(crate) mod delay;
+pub(crate) mod event_data;
 pub(crate) mod location;
 pub(crate) mod system_variables;
 
@@ -32,6 +33,10 @@ use std::collections::BTreeSet;
 
 /// The name of the platform event every failure here raises.
 pub(crate) const ERROR_EXECUTION: &str = "error.execution";
+
+/// The name of the platform event a `<send>` whose target cannot be reached
+/// raises.
+pub(crate) const ERROR_COMMUNICATION: &str = "error.communication";
 
 /// The unbound policy every evaluation passes: a load of a root the
 /// datamodel does not hold fails at the load, as the reference evaluates. A
@@ -142,6 +147,53 @@ pub(crate) enum Failure {
         /// Its failure.
         failure: Box<Failure>,
     },
+    /// A `<send>` refused for its type or its target, after its send id was
+    /// minted and its `idlocation` written.
+    SendRejected {
+        /// The send id.
+        send_id: String,
+        /// Which `error.*` event the refusal raises.
+        kind: RejectionKind,
+        /// Why.
+        rejection: Rejection,
+    },
+}
+
+/// Which `error.*` event a refused `<send>` raises.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RejectionKind {
+    /// `error.execution`: a type or a target the processor does not carry.
+    Execution,
+    /// `error.communication`: a target the declared routes do not reach.
+    Communication,
+}
+
+/// Why a `<send>` was refused, carrying the value as resolved.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Rejection {
+    /// The type is neither the SCXML Event I/O Processor's nor one the host
+    /// registered.
+    UnsupportedType(Value),
+    /// The target names nothing the SCXML Event I/O Processor carries.
+    InvalidTarget(Value),
+    /// The routes the driver declared do not reach the target.
+    UnreachableTarget(Value),
+}
+
+impl Rejection {
+    /// The refusal as the data its `error.*` event carries: a map whose
+    /// `"kind"` names it, with the value beside it.
+    fn data(&self) -> Value {
+        let (kind, field, value) = match self {
+            Rejection::UnsupportedType(value) => ("unsupported_type", "type", value),
+            Rejection::InvalidTarget(value) => ("invalid_target", "target", value),
+            Rejection::UnreachableTarget(value) => ("unreachable_target", "target", value),
+        };
+        let mut map = Map::new();
+        map.insert(field, value.clone());
+        map.insert("kind", Value::from(kind));
+        Value::Map(map)
+    }
 }
 
 impl Failure {
@@ -205,19 +257,40 @@ impl Failure {
                 map.insert("reason", failure.data());
                 "nested_content"
             }
+            Failure::SendRejected { rejection, .. } => return rejection.data(),
         };
         map.insert("kind", Value::from(kind));
         Value::Map(map)
     }
 
-    /// `_event`'s value for the `error.execution` platform event this
-    /// failure raises: its name, the type `platform`, no send id, origin or
-    /// invoke id, and the failure ([`Failure::data`]) as its data.
+    /// The name of the platform event this failure raises: a refused
+    /// `<send>`'s kind names it, `error.communication` for a target the
+    /// routes do not reach; every other failure, a refusal nested inside an
+    /// `<if>` or a `<foreach>` included, raises `error.execution`, as the
+    /// reference raises it.
+    pub(crate) fn event_name(&self) -> &'static str {
+        match self {
+            Failure::SendRejected {
+                kind: RejectionKind::Communication,
+                ..
+            } => ERROR_COMMUNICATION,
+            _ => ERROR_EXECUTION,
+        }
+    }
+
+    /// `_event`'s value for the platform event this failure raises: its
+    /// name ([`Failure::event_name`]), the type `platform`, the send id of a
+    /// refused `<send>` and none otherwise, no origin or invoke id, and the
+    /// failure ([`Failure::data`]) as its data.
     pub(crate) fn event(&self) -> Value {
+        let sendid = match self {
+            Failure::SendRejected { send_id, .. } => Some(send_id.as_str()),
+            _ => None,
+        };
         system_variables::event(&EventFields {
-            name: ERROR_EXECUTION,
+            name: self.event_name(),
             event_type: EventType::Platform,
-            sendid: None,
+            sendid,
             origin: None,
             origintype: None,
             invokeid: None,

@@ -88,6 +88,14 @@ document holds either:
   entering it enters nothing. statifier-ex never finishes resolving such a
   history.
 
+It differs in this count of a session's sends, which no corpus document
+reaches:
+
+- The send counter, which a generated send id (`send_1`, `send_2`, ...)
+  counts from, and the timer counter, which a delayed send's, a cancel's
+  and a registered type's ordinal counts from, are 64-bit and stop at their
+  largest value; statifier-ex counts without bound.
+
 `compile` does not yet refuse a chart whose expressions call a function no
 evaluation can supply: statifier-ex refuses such a chart with the reason
 `unknown_function`, and here the call fails only when it is evaluated.
