@@ -1,23 +1,32 @@
 //! The interpreter's algorithm, ported function for function from the
 //! specification's appendix pseudocode as the reference ports it
 //! (`Statifier.Interpreter` in statifier-ex): which transitions an event
-//! enables, which states they leave and which they enter.
+//! enables, which states they leave and which they enter; what a block of
+//! executable content does; and the loop over them, which starts a chart,
+//! takes an event and runs each macrostep.
 //!
-//! Every function here is a pure query over a [`Snapshot`], the two globals
-//! the pseudocode keeps beside the chart: the configuration and the
+//! Selection, exit and entry are pure queries over a [`Snapshot`], the two
+//! globals the pseudocode keeps beside the chart: the configuration and the
 //! recorded history. None of them changes the snapshot or runs executable
-//! content; each answers a plain value the step that calls it acts on.
+//! content; each answers a plain value the step that calls it acts on. The
+//! loop threads one position (`machine_state`) through them, running the
+//! content they name, and each of its entry points answers the position it
+//! leaves with its effects, never changing the one it was given.
 //!
 //! Every set of state indexes is a [`BTreeSet`], and every map keyed by a
 //! state a [`BTreeMap`]: the compiler interns states in document order, so
 //! ascending index order is document order, and no answer depends on a
 //! hash.
 
+mod binding;
 mod content;
 mod entering;
+mod event_loop;
 mod exit_entry;
+mod machine_state;
 mod name_match;
 mod selection;
+mod step;
 
 #[cfg(test)]
 mod tests;

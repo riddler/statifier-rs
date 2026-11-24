@@ -14,38 +14,37 @@
 #![warn(missing_docs)]
 
 mod compiler;
-// Nothing in the library evaluates through the binding until the
-// interpreter does; the expectation fails the build once something does, so
-// it comes off then.
+// Nothing in the library evaluates through the binding until the driver
+// steps a machine through the interpreter loop; the expectation fails the
+// build once something does, so it comes off then.
 #[cfg_attr(
     not(test),
     expect(
         dead_code,
-        reason = "no caller until the interpreter evaluates through the binding"
+        reason = "no caller until the driver steps a machine through the loop"
     )
 )]
 mod datamodel;
 mod document;
 mod effect;
-// Nothing in the library steps a machine until the interpreter loop does;
-// the expectation fails the build once something does, so it comes off then.
+// Nothing in the library steps a machine until the driver calls the
+// interpreter loop; the expectation fails the build once something does, so
+// it comes off then.
 #[cfg_attr(
     not(test),
     expect(
         dead_code,
-        reason = "no caller until the interpreter loop selects, exits and enters"
+        reason = "no caller until the driver calls the interpreter loop"
     )
 )]
 mod interpreter;
 mod lowering;
-// Nothing in the library reads the machine until the interpreter steps it;
-// the expectation fails the build once something does, so it comes off then.
+// Nothing in the library reads the machine until the driver steps it
+// through the interpreter loop; the expectation fails the build once
+// something does, so it comes off then.
 #[cfg_attr(
     not(test),
-    expect(
-        dead_code,
-        reason = "no caller until the interpreter reads the machine"
-    )
+    expect(dead_code, reason = "no caller until the driver steps the machine")
 )]
 mod machine;
 mod refusal;

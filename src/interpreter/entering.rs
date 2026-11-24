@@ -6,6 +6,7 @@
 
 use super::Snapshot;
 use super::selection::{get_effective_target_states, get_transition_domain};
+use crate::machine::Transition;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The pseudocode's three `computeEntrySet` out-parameters, one value.
@@ -27,9 +28,22 @@ pub(crate) struct EntrySet {
 /// history resolved to what it stands for) enters its ancestors up to the
 /// transition's domain.
 pub(crate) fn compute_entry_set(snapshot: &Snapshot<'_>, transitions: &[usize]) -> EntrySet {
+    let chart = snapshot.chart;
+    compute_entry_set_of(
+        snapshot,
+        transitions.iter().map(|&index| &chart.transitions[index]),
+    )
+}
+
+/// [`compute_entry_set`] over the transitions themselves, which lets the
+/// root's initial transition, which no document wrote and so has no index,
+/// be entered.
+pub(crate) fn compute_entry_set_of<'t>(
+    snapshot: &Snapshot<'_>,
+    transitions: impl IntoIterator<Item = &'t Transition>,
+) -> EntrySet {
     let mut entry_set = EntrySet::default();
-    for &index in transitions {
-        let transition = &snapshot.chart.transitions[index];
+    for transition in transitions {
         for &target in &transition.targets {
             add_descendant_states_to_enter(snapshot, target, &mut entry_set);
         }

@@ -22,10 +22,11 @@
 //! after them, and a parallel's regions leave in reverse document order and
 //! enter in document order.
 
-use super::entering::compute_entry_set;
+use super::entering::{EntrySet, compute_entry_set, compute_entry_set_of};
 use super::selection::compute_exit_set;
 use super::{History, Snapshot};
 use crate::document::HistoryType;
+use crate::machine::Transition;
 use std::collections::BTreeSet;
 
 /// What [`exit_states`] answered.
@@ -135,8 +136,22 @@ pub(crate) fn record_history_values(snapshot: &Snapshot<'_>, states_to_exit: &[u
 /// `snapshot` is the one the exit left: its configuration and history after
 /// [`exit_states`].
 pub(crate) fn enter_states(snapshot: &Snapshot<'_>, transitions: &[usize]) -> Entry {
+    arrivals(snapshot, &compute_entry_set(snapshot, transitions))
+}
+
+/// [`enter_states`] over the transitions themselves, which lets the root's
+/// initial transition, which no document wrote and so has no index, be
+/// entered.
+pub(crate) fn enter_states_of<'t>(
+    snapshot: &Snapshot<'_>,
+    transitions: impl IntoIterator<Item = &'t Transition>,
+) -> Entry {
+    arrivals(snapshot, &compute_entry_set_of(snapshot, transitions))
+}
+
+// The entry set's arrivals, in entry order.
+fn arrivals(snapshot: &Snapshot<'_>, entry_set: &EntrySet) -> Entry {
     let chart = snapshot.chart;
-    let entry_set = compute_entry_set(snapshot, transitions);
     let mut configuration = snapshot.configuration.clone();
     let mut states = Vec::with_capacity(entry_set.states_to_enter.len());
     for &index in &entry_set.states_to_enter {

@@ -117,6 +117,9 @@ pub(crate) enum Failure {
     Compile(Box<Refusal>),
     /// A condition answered something other than true or false.
     NonBooleanCond(Value),
+    /// A `<data>` whose value is a `src` to fetch: nothing here fetches
+    /// one, so it binds nothing, as the reference binds nothing for one.
+    Src(String),
     /// A write reached `root`, a system variable's root (one spelled with a
     /// leading underscore).
     SystemVariable(String),
@@ -217,6 +220,10 @@ impl Failure {
             Failure::NonBooleanCond(value) => {
                 map.insert("value", value.clone());
                 "non_boolean_cond"
+            }
+            Failure::Src(src) => {
+                map.insert("src", Value::from(src.as_str()));
+                "src"
             }
             Failure::SystemVariable(root) => {
                 map.insert("root", Value::from(root.as_str()));

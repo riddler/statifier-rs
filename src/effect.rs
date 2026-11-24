@@ -9,6 +9,7 @@
 //! the macrostep, the microstep within it and the round.
 
 use crate::Value;
+use predicator_rs::Map;
 
 /// One effect: something the chart did that a host may observe.
 ///
@@ -174,6 +175,69 @@ pub enum Effect {
         /// The microstep counter when it ran.
         microstep: u64,
         /// The round counter when it ran.
+        round: u64,
+    },
+    /// The datamodel as it stood when the chart started, every `<data>` id
+    /// declared and none of them bound yet: the base a host applies each
+    /// [`Effect::DatamodelChange`] to. It is the first effect a chart
+    /// answers when it starts.
+    #[non_exhaustive]
+    DatamodelInit {
+        /// The datamodel: the host's values, the system variables over them,
+        /// and every `<data>` id the host did not supply, as
+        /// [`Value::Undefined`].
+        datamodel: Map,
+        /// The macrostep counter when it was made.
+        macrostep: u64,
+        /// The microstep counter when it was made.
+        microstep: u64,
+        /// The round counter when it was made.
+        round: u64,
+    },
+    /// A macrostep spent its round budget without reaching a stable
+    /// configuration. The chart is where the last round left it and still
+    /// running: nothing exited and nothing stopped. It comes last among the
+    /// effects of the call that spent the budget.
+    #[non_exhaustive]
+    BudgetExhausted {
+        /// The indexes of the active states as the last round left them,
+        /// ascending.
+        configuration: Vec<usize>,
+        /// The budget spent: the most rounds one macrostep may take.
+        budget: u64,
+        /// The events still on the internal queue, oldest first, each as
+        /// `_event` would read it: a map of its name, type, send id, origin,
+        /// origin type, invoke id and data.
+        pending_internal_events: Vec<Value>,
+        /// The macrostep counter when it was spent.
+        macrostep: u64,
+        /// The microstep counter when it was spent.
+        microstep: u64,
+        /// The round counter when it was spent: the rounds the macrostep took.
+        round: u64,
+    },
+    /// The chart stopped: every active state has exited, and nothing more
+    /// happens to it. It comes last among the effects of the call that
+    /// stopped it.
+    #[non_exhaustive]
+    Done {
+        /// The top-level final state's `<donedata>`: [`Value::Undefined`]
+        /// when it has none, or when evaluating it failed; `None` when no
+        /// top-level final state exited, as when the chart was cancelled.
+        donedata: Option<Value>,
+        /// The data of the first `error.execution` evaluating the donedata
+        /// raised, `None` when it raised none. Nothing can take that event
+        /// from the internal queue once the chart has stopped, so it is
+        /// carried here.
+        donedata_error: Option<Value>,
+        /// The indexes of the states that were active when the chart
+        /// stopped, ascending.
+        configuration: Vec<usize>,
+        /// The macrostep counter when it stopped.
+        macrostep: u64,
+        /// The microstep counter when it stopped.
+        microstep: u64,
+        /// The round counter when it stopped.
         round: u64,
     },
     /// A `<cancel>` ran: the host drops the delayed send it names, if one

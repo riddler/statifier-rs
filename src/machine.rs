@@ -48,7 +48,7 @@ impl Machine {
         &self.chart.warnings
     }
 
-    #[cfg(test)]
+    /// The chart it holds.
     pub(crate) fn chart(&self) -> &Chart {
         &self.chart
     }
