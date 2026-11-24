@@ -74,20 +74,26 @@ pub const EXPECT_ACCEPTS: &str = "expect_accepts";
 pub const EVENT_IO_PROCESSORS: &str = "event_io_processors";
 
 /// The host object a drive builds a case's run against: the table of Event
-/// I/O Processors this runner provides, by the location the corpus names
-/// them with. The runner provides none in this round; a later round
-/// registers the Basic HTTP processor here. The crate has no processor
-/// hook yet, so a provided processor is a name the case is allowed to
-/// carry, and its behaviour is the provider's to wire when it registers.
+/// I/O Processors this runner provides, by the URI the corpus names them
+/// with. Built with the `basichttp` feature, the runner provides the Basic
+/// HTTP processor ([`statifier::basichttp::URI`]), carried by the in-memory
+/// loopback in [`crate::loopback`]; built without it, the runner provides
+/// none. Any other provided name is a stand-in a test registers: a case
+/// naming it is allowed through, and nothing carries its sends.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Host {
     provided: BTreeSet<String>,
 }
 
 impl Host {
-    /// The host the runner drives every case with: no processor provided.
+    /// The host the runner drives every case with: the Basic HTTP
+    /// processor when the `basichttp` feature is on, else no processor.
     pub fn runner() -> Self {
-        Self::default()
+        #[cfg(feature = "basichttp")]
+        let host = Self::providing(&[statifier::basichttp::URI]);
+        #[cfg(not(feature = "basichttp"))]
+        let host = Self::default();
+        host
     }
 
     /// A host providing `processors`, for a stand-in registered by a test.
@@ -152,7 +158,9 @@ pub enum Outcome {
 /// whole run is recorded ([`Sends`]), and once every configuration agrees
 /// the sends recorded must be exactly its [`EXPECT_SENDS`], in order. Its
 /// [`EVENT_IO_PROCESSORS`] are routed through the [`Host`] (a processor the
-/// host does not provide fails the case naming it). Its [`DECLARED_EVENTS`]
+/// host does not provide fails the case naming it), and the Basic HTTP
+/// processor's sends go through the in-memory loopback, never recorded
+/// (`loopback.rs`, built with the `basichttp` feature). Its [`DECLARED_EVENTS`]
 /// are checked against the compiled chart before anything else, and the
 /// answer must be exactly its [`EXPECT_ACCEPTS`] ([`accepts`]). Its
 /// [`DIFF_KEYS`] are accepted and not compared. A case carrying any other
@@ -203,6 +211,7 @@ fn drive_case(item: &Value, host: &Host) -> Result<(), String> {
     accepts(&machine, item)?;
     let options = options(item, host)?;
     let mut sends = Sends::new(options.send_types.clone(), expect_sends(item)?);
+    let (options, exchange) = attach(item, host, options);
     let steps = item
         .get("steps")
         .and_then(Value::as_array)
@@ -211,9 +220,8 @@ fn drive_case(item: &Value, host: &Host) -> Result<(), String> {
     let started = machine
         .start(options)
         .map_err(|error| format!("the driver refused the start: {error}"))?;
-    sends.take(&started.effects);
-    let state = report(&started.state, &mut sends)?;
-    let mut state = reach(&state, 0, &expected, &mut sends)?;
+    let state = absorb(&started.state, started.effects, &mut sends, &exchange)?;
+    let mut state = reach(&state, 0, &expected, &mut sends, &exchange)?;
     compare(&state, &expected, "the initial configuration")?;
     for (index, step) in steps.iter().enumerate() {
         let event = step.get("event");
@@ -228,15 +236,13 @@ fn drive_case(item: &Value, host: &Host) -> Result<(), String> {
         let mut fired = Vec::new();
         let settled = clock::settle(&state, &mut fired)
             .map_err(|error| format!("the settle window: {error}"))?;
-        sends.take(&fired);
-        let settled = report(&settled, &mut sends)?;
+        let settled = absorb(&settled, fired, &mut sends, &exchange)?;
         let since = settled.now_ms();
         let moved = settled
             .step(name, data)
             .map_err(|error| format!("step {} (event {name:?}): {error}", index + 1))?;
-        sends.take(&moved.effects);
-        let reported = report(&moved.state, &mut sends)?;
-        state = reach(&reported, since, &expected, &mut sends)?;
+        let reported = absorb(&moved.state, moved.effects, &mut sends, &exchange)?;
+        state = reach(&reported, since, &expected, &mut sends, &exchange)?;
         compare(
             &state,
             &expected,
@@ -305,11 +311,6 @@ impl Sends {
             handed: Vec::new(),
             failing: Vec::new(),
         }
-    }
-
-    /// Whether a send handed is still to be reported failed.
-    pub fn has_failing(&self) -> bool {
-        !self.failing.is_empty()
     }
 
     /// The sends to report failed, in the order handed, each taken once.
@@ -674,35 +675,127 @@ fn names(value: &Value) -> Option<Vec<String>> {
         .collect()
 }
 
-/// The state once every send `sends` holds to report failed is reported,
-/// each through [`State::report_send_failed`], and the sends each report
-/// hands the host are read in turn.
-fn report(state: &State, sends: &mut Sends) -> Result<State, String> {
+/// The Event I/O Processor exchange a case's sends go through: the Basic
+/// HTTP loopback when the case names that processor and the build has the
+/// `basichttp` feature, else none.
+#[cfg(feature = "basichttp")]
+type Exchange = Option<crate::loopback::Loopback>;
+
+/// Without the `basichttp` feature there is no processor to exchange with.
+#[cfg(not(feature = "basichttp"))]
+type Exchange = ();
+
+/// `options` with the case's Event I/O Processors registered, and the
+/// exchange that carries their sends. Built with the `basichttp` feature,
+/// a case whose `host` object names the Basic HTTP processor, which `host`
+/// provides, gets it ([`crate::loopback::attach`]), as the reference's
+/// runner registers a processor only for a case that names it.
+#[cfg(feature = "basichttp")]
+fn attach(item: &Value, host: &Host, options: Options) -> (Options, Exchange) {
+    let processors: Vec<String> = item
+        .get("host")
+        .and_then(|object| object.get(EVENT_IO_PROCESSORS))
+        .and_then(names)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|name| host.provides(name))
+        .collect();
+    crate::loopback::attach(&processors, options)
+}
+
+/// Without the `basichttp` feature, `options` as they are.
+#[cfg(not(feature = "basichttp"))]
+fn attach(_item: &Value, _host: &Host, options: Options) -> (Options, Exchange) {
+    (options, ())
+}
+
+/// One exchange round through `exchange` ([`crate::loopback::exchange`]).
+#[cfg(feature = "basichttp")]
+fn exchange_round(
+    exchange: &Exchange,
+    state: State,
+    effects: &[Effect],
+    produced: &mut Vec<Effect>,
+) -> Result<(State, bool), String> {
+    match exchange {
+        Some(loopback) => crate::loopback::exchange(loopback, state, effects, produced),
+        None => Ok((state, false)),
+    }
+}
+
+/// Without the `basichttp` feature, nothing is exchanged.
+#[cfg(not(feature = "basichttp"))]
+fn exchange_round(
+    _exchange: &Exchange,
+    state: State,
+    _effects: &[Effect],
+    _produced: &mut Vec<Effect>,
+) -> Result<(State, bool), String> {
+    Ok((state, false))
+}
+
+/// The most exchange rounds one call's sends may take
+/// ([`crate::loopback::ROUND_BOUND`]).
+#[cfg(feature = "basichttp")]
+const ROUND_BOUND: usize = crate::loopback::ROUND_BOUND;
+
+/// Without the `basichttp` feature no round is exchanged; the bound is the
+/// same.
+#[cfg(not(feature = "basichttp"))]
+const ROUND_BOUND: usize = 100;
+
+/// The state once every effect one call handed the host is taken: the sends
+/// of a registered type are read by `sends`, each one to report failed is
+/// reported through [`State::report_send_failed`], and the processor's
+/// sends go through `exchange`, which delivers them and steps the session
+/// with the events received; the effects those hand the host are taken in
+/// turn. More than [`ROUND_BOUND`] exchange rounds fail the case naming
+/// the bound.
+fn absorb(
+    state: &State,
+    effects: Vec<Effect>,
+    sends: &mut Sends,
+    exchange: &Exchange,
+) -> Result<State, String> {
     let mut state = state.clone();
+    let mut pending = effects;
+    let mut rounds = 0usize;
     loop {
-        let failing = sends.failing();
-        if failing.is_empty() {
-            return Ok(state);
-        }
-        for send in &failing {
+        sends.take(&pending);
+        let mut produced = Vec::new();
+        for send in sends.failing() {
             let moved = state
-                .report_send_failed(send, None)
+                .report_send_failed(&send, None)
                 .map_err(|error| format!("the driver refused the failed-send report: {error}"))?;
-            sends.take(&moved.effects);
+            produced.extend(moved.effects);
             state = moved.state;
         }
+        let (next, carried) = exchange_round(exchange, state, &pending, &mut produced)?;
+        state = next;
+        if carried {
+            rounds += 1;
+            if rounds > ROUND_BOUND {
+                return Err(format!(
+                    "the Basic HTTP exchange passed its bound of {ROUND_BOUND} rounds"
+                ));
+            }
+        }
+        if produced.is_empty() {
+            return Ok(state);
+        }
+        pending = produced;
     }
 }
 
 /// The state once `expected` is reached or the deadline after `since` has
-/// passed; the sends the timers fired on the way hand the host go to
-/// `sends`, and one to report failed is reported before the configuration
-/// is read again.
+/// passed; the effects the timers fired on the way are taken ([`absorb`])
+/// before the configuration is read again.
 fn reach(
     state: &State,
     since: u64,
     expected: &[String],
     sends: &mut Sends,
+    exchange: &Exchange,
 ) -> Result<State, String> {
     let mut state = state.clone();
     loop {
@@ -714,11 +807,10 @@ fn reach(
             &mut fired,
         )
         .map_err(|error| format!("the configuration deadline: {error}"))?;
-        sends.take(&fired);
-        if !sends.has_failing() {
+        if fired.is_empty() {
             return Ok(reached);
         }
-        state = report(&reached, sends)?;
+        state = absorb(&reached, fired, sends, exchange)?;
     }
 }
 

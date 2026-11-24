@@ -478,8 +478,12 @@ fn passing_abm() -> Results {
     run_passing(&corpus(), &[A, B, M])
 }
 
+// Built with the basichttp feature alone: the claimed cases that name the
+// Basic HTTP processor fail without it, and registry_check holds such a
+// build.
 // Sabotage: append a blank line to conformance/registry.json; the assert on
 // its problems fails (the encoding check names it).
+#[cfg(feature = "basichttp")]
 #[test]
 fn the_shipped_registry_passes_and_claims_the_three_suites_alone() {
     let corpus = corpus();
@@ -749,8 +753,11 @@ fn ratchet_into(
     (outcome, std::fs::read_to_string(&path).unwrap())
 }
 
+// Built with the basichttp feature alone: without it the claimed cases that
+// name the Basic HTTP processor fail, and the ratchet refuses, as it must.
 // Sabotage: write serde_json::to_string_pretty in place of registry::encode
 // in ratchet::write; the assert_eq on the written bytes fails.
+#[cfg(feature = "basichttp")]
 #[test]
 fn a_run_that_passes_nothing_new_writes_the_same_registry() {
     let corpus = corpus();

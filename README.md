@@ -524,8 +524,8 @@ head:
 | scion | 119 |
 | statifier | 36 |
 | w3c-mandatory | 152 |
-| w3c-optional | 2 |
-| Total | 309 |
+| w3c-optional | 13 |
+| Total | 320 |
 
 No case is skipped. A case this crate cannot pass is a defect to bring to
 the reference, never an entry on a skip list. The full gate re-runs the

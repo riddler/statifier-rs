@@ -24,6 +24,8 @@
 mod checks;
 mod clock;
 mod corpus;
+#[cfg(feature = "basichttp")]
+mod loopback;
 mod position;
 mod position_expectation;
 mod ratchet;
@@ -87,6 +89,11 @@ fn corpus_check() {
 // the gap list (every unclaimed case of every suite in the reference's
 // order, with the features it needs) and, per suite, the cases not yet
 // claimed.
+// Built without the basichttp feature, the run carries no Basic HTTP
+// processor, so each entry whose case names one fails naming it; the check
+// then requires exactly that failure of each such entry, counts them and
+// says so, and holds every other entry to every check. The gate's stage
+// builds with every feature and holds them all.
 // Sabotage: with an entry for a case no run passes added to registry.json,
 // this test fails naming the entry.
 #[test]
@@ -96,6 +103,10 @@ fn registry_check() {
     let bytes = std::fs::read(dir.join(REGISTRY_FILE)).unwrap();
     let results = runner::run(&corpus, runner::drive);
     let problems = registry::check(&bytes, &corpus, &results);
+    #[cfg(not(feature = "basichttp"))]
+    let (problems, left_out) = without_the_processor(problems, &corpus);
+    #[cfg(feature = "basichttp")]
+    let left_out = 0;
     assert!(
         problems.is_empty(),
         "registry check failed:\n  {}",
@@ -105,7 +116,7 @@ fn registry_check() {
     if entries.is_empty() {
         println!("registry: no claim is made");
     } else {
-        println!("registry: {} entries pass today", entries.len());
+        println!("registry: {} entries pass today", entries.len() - left_out);
     }
     for line in runner::pass_lines(&corpus, &results) {
         println!("{line}");
@@ -116,6 +127,65 @@ fn registry_check() {
     for line in runner::unclaimed_lines(&corpus, &entries, &reference_registry().entries) {
         println!("{line}");
     }
+}
+
+/// `problems` with the one each registry entry whose case names an Event
+/// I/O Processor must raise in a build without the basichttp feature taken
+/// out: that it no longer passes, failing because the runner does not run
+/// the processor. An entry that does not raise exactly that is a problem
+/// of its own. It answers the problems left and how many entries it took
+/// out, and prints that count.
+#[cfg(not(feature = "basichttp"))]
+fn without_the_processor(problems: Vec<String>, corpus: &Corpus) -> (Vec<String>, usize) {
+    let cases = corpus.by_id();
+    let mut problems = problems;
+    let mut taken = 0;
+    for entry in shipped_registry().entries {
+        let Some(runner::Outcome::Fail(reason)) = cases
+            .get(entry.case_id.as_str())
+            .map(|item| claimed_outcome(item))
+        else {
+            continue;
+        };
+        let expected = format!("the ratchet: {} no longer passes: {reason}", entry.case_id);
+        match problems.iter().position(|problem| *problem == expected) {
+            Some(index) => {
+                problems.remove(index);
+                taken += 1;
+            }
+            None => problems.push(format!(
+                "{} names an Event I/O Processor, and a build without the basichttp feature did not fail it naming the processor",
+                entry.case_id
+            )),
+        }
+    }
+    println!(
+        "registry: {taken} entries need the Basic HTTP processor, which this build leaves out (the basichttp feature); `mise run gate:registry` holds them"
+    );
+    (problems, taken)
+}
+
+// The registry makes the claims the vendored reference registry makes, over
+// the same entries: every case the reference claims, this crate claims.
+// Sabotage: with the line for w3c/test509 dropped from registry.json, the
+// entries' assert_eq fails naming the case.
+#[test]
+fn the_registry_claims_what_the_reference_registry_claims() {
+    let ours = shipped_registry();
+    let theirs = reference_registry();
+    assert_eq!(ours.claims, theirs.claims);
+    let ours: Vec<&str> = ours
+        .entries
+        .iter()
+        .map(|entry| entry.case_id.as_str())
+        .collect();
+    let theirs: Vec<&str> = theirs
+        .entries
+        .iter()
+        .map(|entry| entry.case_id.as_str())
+        .collect();
+    assert_eq!(ours, theirs);
+    assert_eq!(shipped_registry().entries, reference_registry().entries);
 }
 
 // The position round-trip stage, a stage of the full gate: every scion
@@ -481,9 +551,9 @@ fn the_drive_registers_the_send_types_a_case_declares() {
     );
 }
 
-// A case naming an Event I/O Processor fails naming it, since this runner
-// runs none, and any other host key it cannot honour fails naming the key;
-// neither is skipped.
+// A case naming an Event I/O Processor the host does not run fails naming
+// it, and any other host key the runner cannot honour fails naming the
+// key; neither is skipped.
 // Sabotage: make runner::options ignore event_io_processors; the first
 // assert_eq goes red (the chart reaches its expected configuration).
 #[test]
@@ -493,7 +563,7 @@ fn the_drive_fails_a_case_whose_host_it_cannot_honour_naming_what_it_needs() {
         serde_json::json!({"event_io_processors": ["http://www.w3.org/TR/scxml/#BasicHTTPEventProcessor"]}),
     );
     assert_eq!(
-        runner::drive(&processor),
+        runner::drive_with(&processor, &runner::Host::providing(&[])),
         runner::Outcome::Fail(
             "the case needs the Event I/O Processor http://www.w3.org/TR/scxml/#BasicHTTPEventProcessor, which this runner does not run"
                 .to_owned()
@@ -816,7 +886,7 @@ fn the_drive_fails_a_case_it_cannot_compare_yet_naming_what_it_waits_on() {
 
 // A processor the host provides lets a case naming it through to the drive;
 // one it does not provide fails the case naming that processor alone, and
-// the runner's own host provides none.
+// the runner's own host provides no stand-in.
 // Sabotage: make runner::options name no processor as missing; the
 // unprovided assert_eq goes red (the case passes). Make it name every
 // processor, provided or not; the first assert_eq goes red (the case
@@ -973,6 +1043,8 @@ fn the_gap_list_names_each_unclaimed_case_of_every_suite_in_order_with_its_featu
     );
 }
 
+// Built without the basichttp feature, a claimed case naming an Event I/O
+// Processor must fail naming it instead, as registry_check requires.
 // Sabotage: make runner::run answer a fail for every case; the assertion
 // that each claimed case passes fails once the registry claims one. With no
 // entry it loops over nothing: the registry check carries the same rule
@@ -980,15 +1052,36 @@ fn the_gap_list_names_each_unclaimed_case_of_every_suite_in_order_with_its_featu
 #[test]
 fn every_claimed_case_passes() {
     let corpus = corpus();
+    let cases = corpus.by_id();
     let results = runner::run(&corpus, runner::drive);
     for entry in shipped_registry().entries {
+        let expected = claimed_outcome(cases[entry.case_id.as_str()]);
         assert_eq!(
             results.get(&entry.case_id),
-            Some(&runner::Outcome::Pass),
-            "{} is claimed and fails",
+            Some(&expected),
+            "{} is claimed and does not answer {expected:?}",
             entry.case_id
         );
     }
+}
+
+/// What a claimed case answers in this build: a pass, or, built without
+/// the basichttp feature, the failure naming the Event I/O Processors its
+/// `host` object names when it names any.
+fn claimed_outcome(item: &serde_json::Value) -> runner::Outcome {
+    let processors: Vec<&str> = item
+        .get("host")
+        .and_then(|host| host.get(runner::EVENT_IO_PROCESSORS))
+        .and_then(serde_json::Value::as_array)
+        .map(|names| names.iter().filter_map(serde_json::Value::as_str).collect())
+        .unwrap_or_default();
+    if cfg!(feature = "basichttp") || processors.is_empty() {
+        return runner::Outcome::Pass;
+    }
+    runner::Outcome::Fail(format!(
+        "the case needs the Event I/O Processor {}, which this runner does not run",
+        processors.join(", ")
+    ))
 }
 
 // Sabotage: count the reference's entries in place of this registry's in

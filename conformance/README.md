@@ -69,8 +69,9 @@ STATIFIER_CORPUS_TAG=vX.Y.Z STATIFIER_CORPUS_CLONE=../statifier-ex \
 
 The code behind them lives in `tests/conformance/`, the `conformance` test
 target, beside the tests that hold it; none of it ships. Each command runs
-one test of that target on its own; `ratchet` and `refresh` write tracked
-files, so they are ignored by every other test run.
+one test of that target on its own, built with every feature; `ratchet`
+and `refresh` write tracked files, so they are ignored by every other test
+run.
 
 **Check.** `mise run gate:corpus` recomputes the corpus hash from the copy -
 SHA-256 over the bytes of the suite files concatenated in suite order, scion,
@@ -103,7 +104,9 @@ leaves (`State::active_leaf_count`, or `Done::active_leaf_count`) against
 the ids read, so a case whose active leaf has no id fails, as the
 reference's harness fails it. A case whose `host` object needs what the
 drive does not honour, such as an Event I/O Processor it does not run,
-fails naming it. Every send of a registered type the driver hands the
+fails naming it. A case whose `event_io_processors` names the Basic HTTP
+Event I/O Processor runs it through the loopback below. Every send of a
+registered type the driver hands the
 host over the whole execution is recorded in the case's item shape, a
 cancel the driver hands the host marking a delayed send whose expected
 item says `cancelled`, as the reference's host case runner
@@ -143,6 +146,30 @@ many cases pass, and the gap list: every case of every suite the registry
 does not claim, in the reference's order, with its conformance class when
 the corpus gives one, the features it needs, the keys of its `host` object
 when it has one, and whether it passes or why it fails.
+
+**The Basic HTTP loopback.** Built with the `basichttp` feature, as every
+command below builds the target, the drive runs the Basic HTTP Event I/O
+Processor for a case whose `host` object names it, as the reference's host
+case runner runs it against a loopback front it starts for the case
+(`with_event_io_processors/2` in `lib/mix/statifier/corpus/host_case.ex`
+at the tag): the processor is registered under its URI and its short form
+with `basichttp::register` at a base address under the reserved `.test`
+name, every send of either spelling is delivered with `basichttp::deliver`
+through an in-memory transport (`tests/conformance/loopback.rs`), and that
+transport reads each request with `basichttp::decode`, answers it and keeps
+the event for the session its address names. Once the call that handed the
+sends has returned, the drive steps the session with each kept event, in
+the order received; a miss is reported to the chart by the delivery. A
+case whose sends keep the exchange going for more than 100 rounds fails
+naming the bound. Nothing opens a socket or a port, so the loopback proves
+the processor's encoding and decoding and the core's event path between
+them, not a network. `w3c/test201`, which the reference does not claim
+either, is driven like every case and fails: its own `timeout` reaches the
+chart before the event it sent itself (the README's "Differences from the
+reference"). Built without the feature, the drive runs no processor, every
+case naming one fails naming it, and the registry check requires exactly
+that failure of each entry naming a processor and says how many it left
+out; the full gate's stage builds with the feature and holds every entry.
 
 An excluded document is not in the corpus at all, so it is not a case and
 is counted nowhere; `exclusions.json` is copied for its reasons. A case in
