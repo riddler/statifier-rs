@@ -476,6 +476,31 @@ fn the_drive_fails_a_case_whose_host_it_cannot_honour_naming_what_it_needs() {
     );
 }
 
+// A chart holding an <invoke>, prefixed or not, fails naming invoke before
+// it is driven, even when its configuration would agree with none started;
+// a name that only starts with invoke is not one.
+// Sabotage: make runner::holds_invoke answer false; the first assert_eq
+// goes red (the chart reaches its expected configuration and passes).
+#[test]
+fn the_drive_fails_a_chart_holding_an_invoke_naming_invoke() {
+    let plain = r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" initial="a">
+  <state id="a"><invoke type="scxml"><content><scxml version="1.0"><final id="c"/></scxml></content></invoke></state>
+</scxml>"#;
+    let no_invoke = runner::Outcome::Fail(runner::NO_INVOKE.to_owned());
+    assert_eq!(runner::drive(&scion_case(plain, &["a"], &[])), no_invoke);
+    let prefixed = r#"<s:scxml xmlns:s="http://www.w3.org/2005/07/scxml" version="1.0" initial="a">
+  <s:state id="a"><s:invoke type="scxml"/></s:state>
+</s:scxml>"#;
+    assert_eq!(runner::drive(&scion_case(prefixed, &["a"], &[])), no_invoke);
+    let lookalike = r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" initial="invoker">
+  <state id="invoker"/>
+</scxml>"#;
+    assert_eq!(
+        runner::drive(&scion_case(lookalike, &["invoker"], &[])),
+        runner::Outcome::Pass
+    );
+}
+
 // Sabotage: list every case in runner::gap_lines, claimed or not; the
 // assert_eq on the lines fails (a claimed case appears). Keep the gap list
 // to the driven suites; the assert_eq on the ids fails (no statifier case).
