@@ -572,3 +572,40 @@ fn a_timer_rescheduled_due_at_once_spends_the_call_s_budget() {
     assert_eq!(advanced.state.next_due_ms(), None);
     assert_eq!(advanced.state.now_ms(), 0);
 }
+
+// A heartbeat that reschedules itself a second later is bounded by the
+// duration advanced, never by the budget: one long advance answers what ten
+// short ones do.
+// Sabotage: with `count_fire` never starting its count over when the clock
+// moves on, the long advance halts with BudgetExhausted and leaves no timer.
+#[test]
+fn a_timer_rescheduled_with_a_delay_is_not_halted_however_time_is_split() {
+    let machine = machine(
+        r#" initial="a""#,
+        r#"<state id="a"><onentry><send event="tick" delay="1000ms"/></onentry>
+           <transition event="tick"><log label="tick"/><send event="tick" delay="1000ms"/></transition></state>"#,
+    );
+    let mut options = Options::new("s-1");
+    options.round_budget = budget(3);
+    let started = machine.start(options).unwrap();
+    let long = started.state.advance(10_000).unwrap();
+    assert!(
+        !long
+            .effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::BudgetExhausted { .. })),
+        "{:#?}",
+        long.effects
+    );
+    assert_eq!(long.state.next_due_ms(), Some(11_000));
+    let mut state = started.state;
+    let mut effects = Vec::new();
+    for _ in 0..10 {
+        let moved = state.advance(1_000).unwrap();
+        effects.extend(moved.effects);
+        state = moved.state;
+    }
+    assert_eq!(effects, long.effects);
+    assert_eq!(labels(&long.effects).len(), 10);
+    assert_eq!(state.next_due_ms(), Some(11_000));
+}

@@ -44,11 +44,15 @@
 //! session, which never returns, has no need of: the events it takes that
 //! an immediate send to the session itself queued in the same call, the
 //! immediate sends it delivers onto the internal queue, and the timers it
-//! fires that were scheduled in the same call. A call that would count one
-//! more than the budget on any of them halts the same way, answering
-//! [`Effect::BudgetExhausted`], so every call returns, a chart that keeps
-//! rescheduling a timer due at once included. A timer an earlier call
-//! scheduled is never counted.
+//! fires at one virtual time that were scheduled in the same call, the
+//! count starting over whenever the clock moves on. A call that would
+//! count one more than the budget on any of them halts the same way,
+//! answering [`Effect::BudgetExhausted`]. Under a bounded budget every call
+//! therefore returns, a chart that keeps rescheduling a timer due at once
+//! included, while a chain of timers with a delay is bounded by the duration
+//! advanced and never halts on this count; under [`RoundBudget::Unbounded`]
+//! no count ever halts the driver, and such a call may never return. A timer an earlier
+//! call scheduled is never counted.
 
 #[cfg(test)]
 mod tests;
@@ -460,8 +464,11 @@ struct Call {
     /// The sequence of the first timer this call schedules: a timer at or
     /// past it was scheduled in this call.
     first_sequence: u64,
-    /// Timers scheduled in this call that it fired.
+    /// Timers scheduled in this call that it fired at the virtual time
+    /// `fired_at`.
     fired: u64,
+    /// The virtual time the `fired` count is for.
+    fired_at: u64,
 }
 
 impl Call {
@@ -485,6 +492,7 @@ impl Call {
             spent: false,
             first_sequence,
             fired: 0,
+            fired_at: 0,
         }
     }
 
@@ -536,11 +544,18 @@ impl Call {
     }
 
     /// Counts a timer this call scheduled against the budget as it fires,
-    /// halting the driver when the budget has no room for it; a halted
-    /// driver runs nothing, so its fires are not counted.
+    /// at one virtual time: the count starts over whenever the clock has
+    /// moved on, so only a chain of timers due at once is bounded, and a
+    /// chain with a delay is bounded by the duration advanced. Halts the
+    /// driver when the budget has no room for it; a halted driver runs
+    /// nothing, so its fires are not counted.
     fn count_fire(&mut self, timer: &Timer) {
         if self.state.halted || timer.sequence < self.first_sequence {
             return;
+        }
+        if timer.due_ms != self.fired_at {
+            self.fired_at = timer.due_ms;
+            self.fired = 0;
         }
         self.fired = self.fired.saturating_add(1);
         if !self.state.round_budget.admits(self.fired) {
