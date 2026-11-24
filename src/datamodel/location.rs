@@ -280,8 +280,11 @@ fn bracket(inner: &str) -> Bracket {
     }
 }
 
-/// A whole quoted string's value, its escapes read; `None` for anything
-/// else.
+/// A whole quoted string's value, its escapes read as the predicator
+/// language reads them: `\n`, `\t` and `\r` are a line feed, a tab and a
+/// carriage return, and any other escaped character is itself (a numeric
+/// escape never reaches here: [`Cursor::escape`] refuses it). `None` for
+/// anything else.
 fn string_literal(text: &str) -> Option<String> {
     let mut chars = text.chars();
     let quote = chars.next().filter(|c| *c == '\'' || *c == '"')?;
@@ -292,8 +295,8 @@ fn string_literal(text: &str) -> Option<String> {
                 'n' => '\n',
                 't' => '\t',
                 'r' => '\r',
-                other @ ('\\' | '\'' | '"') => other,
-                _ => return None,
+                'u' | 'U' => return None,
+                other => other,
             }),
             c if c == quote => return chars.next().is_none().then_some(value),
             c => value.push(c),
@@ -360,7 +363,7 @@ impl<'a> Cursor<'a> {
                 while let Some(byte) = self.peek() {
                     self.at += 1;
                     match byte {
-                        b'\\' => self.at += 1,
+                        b'\\' => self.escape()?,
                         byte if byte == quote => return Some(()),
                         _ => {}
                     }
@@ -377,6 +380,17 @@ impl<'a> Cursor<'a> {
         }
     }
 
+    /// The character after a backslash inside a quoted string, read past;
+    /// `None` for a numeric escape (`\u` or `\U`), which the predicator
+    /// language refuses, so the text is not a location.
+    fn escape(&mut self) -> Option<()> {
+        if matches!(self.peek(), Some(b'u' | b'U')) {
+            return None;
+        }
+        self.at += 1;
+        Some(())
+    }
+
     /// The text up to the `]` that closes the bracket just opened, nested
     /// brackets and quoted strings skipped; the cursor ends past it.
     fn bracket_body(&mut self) -> Option<&'a str> {
@@ -386,7 +400,7 @@ impl<'a> Cursor<'a> {
         while let Some(byte) = self.peek() {
             self.at += 1;
             match (quote, byte) {
-                (Some(_), b'\\') => self.at += 1,
+                (Some(_), b'\\') => self.escape()?,
                 (Some(open), byte) if byte == open => quote = None,
                 (Some(_), _) => {}
                 (None, b'\'' | b'"') => quote = Some(byte),

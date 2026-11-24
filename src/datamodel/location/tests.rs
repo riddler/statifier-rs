@@ -30,7 +30,9 @@ fn reason(data: &Map, source: &str) -> LocationReason {
 }
 
 // Sabotage: with resolve answering the root alone, the dotted and indexed
-// paths lose their segments and this fails.
+// paths lose their segments and this fails; with string_literal refusing an
+// escape other than \n, \t, \r, \\, \' and \", `a['\q']` is a computed key and
+// this fails.
 #[test]
 fn resolves_a_root_a_dotted_path_an_index_and_a_name_index() {
     let data = data(&[
@@ -54,19 +56,32 @@ fn resolves_a_root_a_dotted_path_an_index_and_a_name_index() {
         ])
     );
     assert_eq!(
+        resolve(r#"a['\q']["\$"]"#, &data),
+        Ok(vec![key("a"), key("q"), key("$")])
+    );
+    assert_eq!(
         resolve("a[i].b[k]", &data),
         Ok(vec![key("a"), PathSegment::Index(2), key("b"), key("p")])
     );
 }
 
 // Sabotage: with bracket reading a computed bracket as a bare name, a
-// computed key reads as an undefined name and this fails.
+// computed key reads as an undefined name and this fails; with escape
+// letting a numeric escape through, `a['\u0041']` is a computed key and
+// this fails.
 #[test]
 fn refuses_what_is_not_a_location() {
     let data = data(&[("a", Value::Null), ("f", Value::from(1.5))]);
     for source in [
         "", "1", "'a'", "a +", "a.", "a[0", "a.true", "true", "f(x)", "a b",
     ] {
+        assert_eq!(
+            reason(&data, source),
+            LocationReason::NotAssignable,
+            "{source}"
+        );
+    }
+    for source in [r"a['\u0041']", r"a['\U']", r"'\u'.b"] {
         assert_eq!(
             reason(&data, source),
             LocationReason::NotAssignable,
