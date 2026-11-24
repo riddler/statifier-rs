@@ -28,13 +28,15 @@ run = "cargo clippy --all-targets --all-features -- -D warnings"
 description = "The vendored corpus hashes to what its four records say"
 # One test of tests/conformance/, run on its own so what it prints is shown:
 # the tag, the commit, the case count per suite and the corpus hash.
-run = "cargo test --test conformance -- --exact corpus_check --nocapture"
+run = "cargo test --all-features --test conformance -- --exact corpus_check --nocapture"
 
 [tasks."gate:registry"]
 description = "conformance/registry.json passes every check RATCHET.md gives it"
 # Runs every case of the corpus and prints, per suite, the cases not yet
-# claimed.
-run = "cargo test --test conformance -- --exact registry_check --nocapture"
+# claimed. Every conformance task builds with every feature, so the run
+# carries the Basic HTTP processor (the basichttp feature) the w3c cases
+# that name it need; a build without it runs those cases and names them.
+run = "cargo test --all-features --test conformance -- --exact registry_check --nocapture"
 
 [tasks."gate:position"]
 description = "The position round trip agrees at every scion step it can carry"
@@ -47,7 +49,7 @@ run = "cargo test --all-features --test conformance -- --exact position_check --
 description = "Write conformance/registry.json from a run of the whole corpus made now"
 # The one writer of the registry, outside the gate: it adds every case the
 # run observed to pass and refuses to drop one that no longer passes.
-run = "cargo test --test conformance -- --ignored --exact ratchet --nocapture"
+run = "cargo test --all-features --test conformance -- --ignored --exact ratchet --nocapture"
 
 [tasks."corpus:refresh"]
 description = "Move conformance/statifier/ to a statifier-ex tag read from a clone"
@@ -55,7 +57,7 @@ description = "Move conformance/statifier/ to a statifier-ex tag read from a clo
 # STATIFIER_CORPUS_CHECK=1 compares instead, writing nothing:
 #   STATIFIER_CORPUS_TAG=vX.Y.Z STATIFIER_CORPUS_CLONE=../statifier-ex mise run corpus:refresh
 # It refuses while the copy or its record has uncommitted changes.
-run = "cargo test --test conformance -- --ignored --exact refresh --nocapture"
+run = "cargo test --all-features --test conformance -- --ignored --exact refresh --nocapture"
 
 [tasks."gate:test"]
 description = "Test with every feature, then with no default features"
