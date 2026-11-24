@@ -89,15 +89,18 @@ many cases are not yet claimed. The drive (`drive` in
 `tests/conformance/runner.rs`) is the one place the crate is plugged into the
 run, through the crate's public surface alone. It drives the scion suite as
 the reference's harness drives a scion case: it compiles the source, starts
-the chart, and compares the active leaf states (`State::active_leaf_states`)
-with the case's initial configuration and, after each step's event, with
-that step's configuration, settling the virtual clock before each event and
-waiting up to the configuration deadline after it
+the chart, and compares the active leaf states (`State::active_leaf_states`,
+or `Done::active_leaf_states` once the chart has stopped, as the reference's
+harness reads its done effect) with the case's initial configuration
+and, after each step's event, with that step's configuration, settling the
+virtual clock before each event and waiting up to the configuration
+deadline after it
 (`tests/conformance/clock.rs`). Every case of the other suites fails with
 the reason that it is not driven. The registry check prints, for the scion
-suite, how many cases pass and the gap list: every case the registry does
-not claim, in the reference's order, with the features it needs and whether
-it passes or why it fails.
+suite, how many cases pass, and the gap list: every case of every suite the
+registry does not claim, in the reference's order, with its conformance
+class when the corpus gives one, the features it needs, the keys of its
+`host` object when it has one, and whether it passes or why it fails.
 
 An excluded document is not in the corpus at all, so it is not a case and
 is counted nowhere; `exclusions.json` is copied for its reasons. A case in

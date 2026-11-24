@@ -80,7 +80,7 @@ fn corpus_check() {
 // The registry check, a stage of the full gate: every check the copy's
 // RATCHET.md puts over a sibling's registry, against a run of the whole
 // corpus made now. It prints, per driven suite, how many cases pass, then
-// the gap list (every unclaimed case of a driven suite in the reference's
+// the gap list (every unclaimed case of every suite in the reference's
 // order, with the features it needs) and, per suite, the cases not yet
 // claimed.
 // Sabotage: with an entry for a case no run passes added to registry.json,
@@ -252,9 +252,10 @@ const CHART: &str = r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1
   <final id="f"/>
 </scxml>"#;
 
-// The drive compares active leaf states, a stopped chart's as it stopped.
-// Sabotage: compare State::configuration in place of the leaf read in
-// runner::compare; the first assert_eq fails (the parallel is active too).
+// The drive compares active leaf states, a stopped chart's read from its
+// done answer, as the reference's harness reads the done effect.
+// Sabotage: read State::active_leaf_states alone in runner::leaves; the
+// assert_eq fails at step 2 (a stopped chart has no active leaf).
 #[test]
 fn the_drive_compares_the_active_leaves_through_to_a_stopped_chart() {
     let case = scion_case(CHART, &["c", "a"], &[("e.go", &["b"]), ("e.end", &["f"])]);
@@ -328,39 +329,133 @@ fn the_drive_settles_the_clock_before_each_event_and_waits_to_the_deadline() {
     );
 }
 
+/// The start tags of `source`, each as its local name (the part after a
+/// namespace prefix) and its attributes' local names, in document order.
+/// A name ends at whitespace, `/` or `>`, so `<finalize>` is never read as
+/// `<final`; an attribute name ends at whitespace or `=`, so `id = "x"` is
+/// read as `id`; a quoted value is skipped whole, so a `>` or an `id=`
+/// inside one is not markup; and a comment, a CDATA section, a processing
+/// instruction and a declaration produce nothing. An unterminated tag
+/// answers the tags before it and stops, never panicking.
+fn start_tags(source: &str) -> Vec<(String, Vec<String>)> {
+    let local = |name: &str| name.rsplit(':').next().unwrap_or(name).to_owned();
+    let mut tags = Vec::new();
+    let mut rest = source;
+    while let Some(at) = rest.find('<') {
+        rest = &rest[at + 1..];
+        let close = match rest.chars().next() {
+            Some('!') if rest.starts_with("!--") => Some("-->"),
+            Some('!') if rest.starts_with("![CDATA[") => Some("]]>"),
+            Some('!' | '?' | '/') => Some(">"),
+            _ => None,
+        };
+        if let Some(close) = close {
+            let Some(end) = rest.find(close) else { break };
+            rest = &rest[end + close.len()..];
+            continue;
+        }
+        let name_end = rest
+            .find(|c: char| c.is_whitespace() || c == '/' || c == '>')
+            .unwrap_or(rest.len());
+        let name = local(&rest[..name_end]);
+        rest = &rest[name_end..];
+        let mut attributes = Vec::new();
+        loop {
+            rest = rest.trim_start();
+            if rest.is_empty() {
+                return tags;
+            }
+            if let Some(after) = rest.strip_prefix('>').or_else(|| rest.strip_prefix("/>")) {
+                rest = after;
+                break;
+            }
+            let attribute_end = rest
+                .find(|c: char| c.is_whitespace() || c == '=' || c == '>' || c == '/')
+                .unwrap_or(rest.len())
+                .max(1);
+            let attribute = &rest[..attribute_end];
+            rest = rest[attribute_end..].trim_start();
+            if attribute != "/" {
+                attributes.push(local(attribute));
+            }
+            if let Some(after) = rest.strip_prefix('=') {
+                rest = after.trim_start();
+                let Some(quote) = rest.chars().next().filter(|c| *c == '"' || *c == '\'') else {
+                    continue;
+                };
+                let Some(end) = rest[1..].find(quote) else {
+                    return tags;
+                };
+                rest = &rest[end + 2..];
+            }
+        }
+        tags.push((name, attributes));
+    }
+    tags
+}
+
 // Every state of every scion source carries an id, so the leaf read, which
 // leaves out a state with none, leaves out no active leaf of a scion case.
-// Sabotage: drop a state's id in a copy of a scion source; this scan names
-// it (checked by hand on a copy: the regex below matches the bare tag).
+// It reads the start tags word-bounded (start_tags), a prefixed
+// `<ns0:state>` by its local name included.
+// Sabotage: make start_tags push every attribute as "x"; the assertion
+// names the first scion case with a state, and goes red.
 #[test]
 fn every_scion_state_carries_an_id() {
     let corpus = corpus();
+    let mut states = 0;
     for item in corpus.cases_of("scion") {
         let source = item["source"].as_str().unwrap();
-        for tag in ["<state", "<parallel", "<final"] {
-            for (at, _) in source.match_indices(tag) {
-                let rest = &source[at + tag.len()..];
-                let opening = &rest[..rest.find('>').unwrap()];
+        for (name, attributes) in start_tags(source) {
+            if ["state", "parallel", "final"].contains(&name.as_str()) {
+                states += 1;
                 assert!(
-                    rest.starts_with(|c: char| c.is_whitespace() || c == '>' || c == '/'),
-                    "{tag} prefix"
-                );
-                assert!(
-                    opening
-                        .split_whitespace()
-                        .any(|part| part.starts_with("id=")),
-                    "{} has a {tag} with no id",
+                    attributes.iter().any(|attribute| attribute == "id"),
+                    "{} has a <{name}> with no id",
                     corpus::id_of(item).unwrap_or_default()
                 );
             }
         }
     }
+    assert!(states > 0, "the scan read no state");
 }
 
-// Sabotage: list every scion case in runner::gap_lines, claimed or not; the
-// assert_eq on the lines fails (a claimed case appears).
+// Sabotage: make start_tags end a name only at whitespace or `>`; the
+// assert_eq on `<finalize/>` and `<final/>` fails (the names run on).
 #[test]
-fn the_gap_list_names_each_unclaimed_scion_case_in_order_with_its_features() {
+fn the_start_tag_scan_is_word_bounded_and_never_panics() {
+    let tags = start_tags(
+        r#"<?xml version="1.0"?><!-- <state> --><ns0:state id = "a" b='>'><finalize/><final/>
+           <![CDATA[<state>]]><parallel x="id=y"></parallel></ns0:state>"#,
+    );
+    let names: Vec<(&str, Vec<&str>)> = tags
+        .iter()
+        .map(|(name, attributes)| {
+            (
+                name.as_str(),
+                attributes.iter().map(String::as_str).collect(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        names,
+        [
+            ("state", vec!["id", "b"]),
+            ("finalize", vec![]),
+            ("final", vec![]),
+            ("parallel", vec!["x"]),
+        ]
+    );
+    for broken in ["<state", "<state id=\"a", "<!-- <state>", "<state id=", "<"] {
+        let _ = start_tags(broken);
+    }
+}
+
+// Sabotage: list every case in runner::gap_lines, claimed or not; the
+// assert_eq on the lines fails (a claimed case appears). Keep the gap list
+// to the driven suites; the assert_eq on the ids fails (no w3c case).
+#[test]
+fn the_gap_list_names_each_unclaimed_case_of_every_suite_in_order_with_its_features() {
     let corpus = corpus();
     let results = runner::run(&corpus, |item| {
         if corpus::id_of(item) == Some("scion/actionSend/send2") {
@@ -376,12 +471,53 @@ fn the_gap_list_names_each_unclaimed_scion_case_in_order_with_its_features() {
         .skip(2)
         .map(|id| registry::Entry::new(id, "scion"))
         .collect();
+    let lines = runner::gap_lines(&corpus, &claimed, &results);
     assert_eq!(
-        runner::gap_lines(&corpus, &claimed, &results),
+        lines[..2],
         [
             "conformance: gap: scion/actionSend/send1 (needs basic_states, compound_states, event_transitions, raise_elements): passes, not yet claimed",
             "conformance: gap: scion/actionSend/send2 (needs basic_states, compound_states, event_transitions, onexit_actions, raise_elements): fails: why",
         ]
+    );
+    let unclaimed: Vec<&str> = corpus
+        .ids()
+        .into_iter()
+        .filter(|id| !claimed.iter().any(|entry| entry.case_id == *id))
+        .collect();
+    let named: Vec<&str> = lines
+        .iter()
+        .map(|line| {
+            let rest = line.strip_prefix("conformance: gap: ").unwrap();
+            &rest[..rest.find(' ').unwrap()]
+        })
+        .collect();
+    assert_eq!(named, unclaimed);
+    let w3c = corpus.cases_of("w3c")[0].clone();
+    let statifier = corpus.cases_of("statifier")[0].clone();
+    let line_of = |item: &serde_json::Value| {
+        let id = corpus::id_of(item).unwrap();
+        lines
+            .iter()
+            .find(|line| line.starts_with(&format!("conformance: gap: {id} ")))
+            .cloned()
+            .unwrap()
+    };
+    assert_eq!(
+        line_of(&w3c),
+        "conformance: gap: w3c/test144 (mandatory; needs basic_states, compound_states, event_transitions, final_states, log_elements, onentry_actions, raise_elements, wildcard_events): passes, not yet claimed"
+    );
+    assert!(
+        line_of(&statifier).starts_with(&format!(
+            "conformance: gap: {} (needs ",
+            corpus::id_of(&statifier).unwrap()
+        )),
+        "{}",
+        line_of(&statifier)
+    );
+    assert!(
+        line_of(&statifier).contains("; host declared_events, expect_accepts, expect_sends, send_types): passes, not yet claimed"),
+        "{}",
+        line_of(&statifier)
     );
     let lines = runner::pass_lines(&corpus, &results);
     assert_eq!(

@@ -237,6 +237,13 @@ pub struct Done {
     /// The ids of the states that were active when the chart stopped, root
     /// excluded, sorted; a state with no id is left out.
     pub configuration: Vec<String>,
+    /// The ids of the leaf states of the configuration the chart stopped
+    /// in, the states in it with no child state, sorted; a state with no id
+    /// is left out. A stopped chart has no active state, so
+    /// [`State::active_leaf_states`] answers none; this is the set the
+    /// reference's conformance harness compares once it restores the
+    /// configuration its done effect carries.
+    pub active_leaf_states: Vec<String>,
 }
 
 /// A delayed send waiting on the virtual clock.
@@ -294,9 +301,6 @@ pub struct State {
     external_queue: VecDeque<Event>,
     halted: bool,
     done: Option<Done>,
-    /// The ids of the atomic states that were active when the chart
-    /// stopped, sorted; empty while it runs.
-    stopped_leaves: Vec<String>,
 }
 
 impl Machine {
@@ -346,7 +350,6 @@ impl Machine {
             external_queue: VecDeque::new(),
             halted: false,
             done: None,
-            stopped_leaves: Vec::new(),
         });
         call.perform(started.effects);
         call.drain();
@@ -421,9 +424,9 @@ impl State {
     /// compares with a case's expected configuration. A final state is a
     /// leaf, and a history state is never active.
     ///
-    /// A stopped chart answers the leaves of the configuration it stopped
-    /// in, which [`Done::configuration`] carries whole, where
-    /// [`State::configuration`] answers none.
+    /// A stopped chart has no active state, so it answers none, as the
+    /// reference does; the leaves it stopped in are
+    /// [`Done::active_leaf_states`].
     ///
     /// ```
     /// use statifier::{Options, Value};
@@ -444,18 +447,17 @@ impl State {
     ///
     /// let stopped = started.state.step("e.go", Value::Undefined)?;
     /// assert!(stopped.state.configuration().is_empty());
-    /// assert_eq!(stopped.state.active_leaf_states(), ["f"]);
+    /// assert!(stopped.state.active_leaf_states().is_empty());
+    /// let done = stopped.state.done().ok_or("the chart has stopped")?;
+    /// assert_eq!(done.active_leaf_states, ["f"]);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn active_leaf_states(&self) -> Vec<String> {
-        if self.done.is_some() {
-            return self.stopped_leaves.clone();
-        }
         leaf_ids(&self.core, self.core.configuration.iter().copied())
     }
 
-    /// `None` while the chart runs; once it has stopped, its donedata and
-    /// the configuration it stopped in.
+    /// `None` while the chart runs; once it has stopped, its donedata, the
+    /// configuration it stopped in and that configuration's leaf states.
     pub fn done(&self) -> Option<&Done> {
         self.done.as_ref()
     }
@@ -705,9 +707,8 @@ impl Call {
                 self.state.done = Some(Done {
                     donedata: donedata.clone().unwrap_or(Value::Undefined),
                     configuration: ids(&self.state.core, configuration.iter().copied()),
+                    active_leaf_states: leaf_ids(&self.state.core, configuration.iter().copied()),
                 });
-                self.state.stopped_leaves =
-                    leaf_ids(&self.state.core, configuration.iter().copied());
                 self.state.timers.clear();
                 self.external.clear();
                 Vec::new()

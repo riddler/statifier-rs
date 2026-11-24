@@ -158,10 +158,6 @@ made a synchronous value step:
 - `State::configuration` and `Done::configuration` leave out a state the
   document gave no id, as the reference leaves it out where it turns
   states into ids.
-- `State::active_leaf_states` on a stopped chart answers the leaves of the
-  configuration it stopped in; the reference's `active_leaf_states/1`
-  answers none there, and its conformance harness reads the configuration
-  the done effect carries instead.
 - `CompileReason::ExpressionCompileError` does not name the expression's
   owner, which the reference's refusal does; the refusal's span locates
   the expression.
