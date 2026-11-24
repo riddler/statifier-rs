@@ -60,6 +60,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+mod accepts;
 mod compiler;
 mod datamodel;
 mod document;
@@ -82,6 +83,7 @@ mod testing;
 #[doc = include_str!("../README.md")]
 struct ReadmeExamples;
 
+pub use accepts::AcceptsCheck;
 pub use driver::{
     ActiveInvocation, Done, Error, ExportError, ImportError, Moved, Options, Position, RoundBudget,
     State, Status,

@@ -91,7 +91,11 @@ ids), `active_leaf_states()` and `active_leaf_count()`, `done()` (`None`
 while the chart runs; once it has stopped, its donedata and the
 configuration it stopped in), `now_ms()` and `next_due_ms()`, the virtual
 time the earliest pending timer fires at, which is when a host next calls
-`advance`.
+`advance`. Before a chart starts, `Machine::check_accepts(declared)`
+compares the event names a host declares it accepts with the descriptors
+on the transitions some path enters, and answers the declared names no
+descriptor matches (`unreachable`) and the descriptors no declared name
+matches (`undeclared`), refusing nothing.
 
 ```rust
 use statifier::{Options, Value};
@@ -319,10 +323,10 @@ head:
 | Claim | Cases passing |
 |---|---|
 | scion | 119 |
-| statifier | 21 |
+| statifier | 22 |
 | w3c-mandatory | 152 |
 | w3c-optional | 2 |
-| Total | 294 |
+| Total | 295 |
 
 No case is skipped. A case this crate cannot pass is a defect to bring to
 the reference, never an entry on a skip list. The full gate re-runs the

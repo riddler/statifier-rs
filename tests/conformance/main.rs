@@ -500,13 +500,12 @@ fn the_drive_fails_a_case_whose_host_it_cannot_honour_naming_what_it_needs() {
     );
     let other = w3c_case(
         scion_case(CHART, &["a", "c"], &[]),
-        serde_json::json!({"declared_events": []}),
+        serde_json::json!({"mapping": {}}),
     );
     assert_eq!(
         runner::drive(&other),
         runner::Outcome::Fail(
-            "the case needs the host key declared_events, which this runner does not honour"
-                .to_owned()
+            "the case needs the host key mapping, which this runner does not honour".to_owned()
         )
     );
     let several = w3c_case(
@@ -519,6 +518,63 @@ fn the_drive_fails_a_case_whose_host_it_cannot_honour_naming_what_it_needs() {
             "the case needs the host keys expect_diff, to_source, which this runner does not honour"
                 .to_owned()
         )
+    );
+}
+
+// The accepts check runs on the compiled chart before it starts: both lists
+// must be exactly the case's, order included; a JSON null is no
+// declaration; either key without the other fails with its own reason.
+// Sabotage: make runner::accepts answer Ok(()) once both keys are present;
+// the mismatched assert_eq goes red (the case passes).
+#[test]
+fn the_drive_checks_a_cases_declared_events_before_the_chart_starts() {
+    let accepts = |declared: serde_json::Value, expected: serde_json::Value| {
+        runner::drive(&statifier_case(
+            CHART,
+            &["a", "c"],
+            serde_json::json!([]),
+            serde_json::json!({"declared_events": declared, "expect_accepts": expected}),
+        ))
+    };
+    assert_eq!(
+        accepts(
+            serde_json::json!(["e.go", "e.lost"]),
+            serde_json::json!({"unreachable": ["e.lost"], "undeclared": ["e.end"]})
+        ),
+        runner::Outcome::Pass
+    );
+    assert_eq!(
+        accepts(
+            serde_json::Value::Null,
+            serde_json::json!({"unreachable": [], "undeclared": []})
+        ),
+        runner::Outcome::Pass
+    );
+    assert_eq!(
+        accepts(
+            serde_json::json!([]),
+            serde_json::json!({"unreachable": [], "undeclared": ["e.end", "e.go"]})
+        ),
+        runner::Outcome::Fail(
+            "Expected the accepts check {\"undeclared\":[\"e.end\",\"e.go\"],\"unreachable\":[]}, but got {\"undeclared\":[\"e.go\",\"e.end\"],\"unreachable\":[]}"
+                .to_owned()
+        )
+    );
+    let one = |host: serde_json::Value| {
+        runner::drive(&statifier_case(
+            CHART,
+            &["a", "c"],
+            serde_json::json!([]),
+            host,
+        ))
+    };
+    assert_eq!(
+        one(serde_json::json!({"declared_events": []})),
+        runner::Outcome::Fail("declared_events is present without expect_accepts".to_owned())
+    );
+    assert_eq!(
+        one(serde_json::json!({"expect_accepts": {"unreachable": [], "undeclared": []}})),
+        runner::Outcome::Fail("expect_accepts is present without declared_events".to_owned())
     );
 }
 
