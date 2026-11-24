@@ -49,6 +49,11 @@
 //!
 //! # Features and compatibility
 //!
+//! The optional `basichttp` feature, off by default, adds the `basichttp`
+//! module: the `Transport` trait a host implements, with the request,
+//! response and error values it exchanges, for a Basic HTTP send to go
+//! through. It adds no dependency and the crate ships no transport.
+//!
 //! The `serde` feature, off by default, implements `Serialize` and
 //! `Deserialize` for a [`Position`], an [`Effect`] and a [`Done`], with the
 //! types they reach, and turns on the predicator crate's own for a
@@ -61,6 +66,8 @@
 #![warn(missing_docs)]
 
 mod accepts;
+#[cfg(feature = "basichttp")]
+pub mod basichttp;
 mod compiler;
 mod datamodel;
 mod document;
@@ -78,10 +85,27 @@ mod xml;
 #[cfg(test)]
 mod testing;
 
-// The README's Rust examples, run as doctests.
-#[cfg(doctest)]
+// The README's Rust examples, run as doctests with the `basichttp` feature
+// on (the gate's `cargo test --all-features` run), since one of them uses
+// the `basichttp` module.
+#[cfg(all(doctest, feature = "basichttp"))]
 #[doc = include_str!("../README.md")]
 struct ReadmeExamples;
+
+// Proof that the default build does not compile the `basichttp` module. With
+// the feature off the block below is `compile_fail`, so the gate's
+// `cargo test --no-default-features` run passes only when the path does not
+// resolve; with the feature on the same source is a normal block, so a typo
+// in the path breaks that run and the `compile_fail` cannot pass for the
+// wrong reason.
+#[cfg(doctest)]
+#[cfg_attr(not(feature = "basichttp"), doc = "```compile_fail")]
+#[cfg_attr(feature = "basichttp", doc = "```")]
+#[doc = "use statifier::basichttp::Transport;"]
+#[doc = ""]
+#[doc = "fn takes(_transport: &dyn Transport) {}"]
+#[doc = "```"]
+struct BasicHttpModuleIsFeatureGated;
 
 pub use accepts::AcceptsCheck;
 pub use driver::{

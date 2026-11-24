@@ -36,7 +36,8 @@ The crate is `statifier` on crates.io and the library is imported as
 `statifier`. It is not published yet: a `0.0.0` release will hold the name
 and the first real release is `0.1.0`, so until then depend on the
 repository by path or git. The optional `serde` feature is off by default;
-turn it on with `statifier = { version = "0.1", features = ["serde"] }`.
+turn it on with `statifier = { version = "0.1", features = ["serde"] }`. The
+optional `basichttp` feature is off by default too.
 
 ## Basic usage
 
@@ -231,6 +232,91 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 With the `serde` feature an effect serializes as a map whose `kind` is the
 variant in snake case beside its fields in camel case.
 
+## The HTTP transport
+
+The optional `basichttp` feature, off by default, defines the seam a Basic
+HTTP send will go through. The crate opens no socket and ships no transport
+(the standard library has no HTTP client), and the feature adds no
+dependency: a host implements `statifier::basichttp::Transport` over a
+client it already has.
+
+- `Request` holds a `method`, an `address` (the absolute URL), `headers` as
+  name and value pairs in the order sent (a name may repeat) and `body`
+  bytes, empty for none.
+- `Response` holds a `status`, `headers` and `body` bytes. Every status the
+  server answered is a response, 2xx or not: a 503 is a `Response`, never a
+  transport error.
+- `TransportError` is the one error, answered when no response came back
+  (an address that cannot be requested, a refused or failed connection, a
+  time bound passed, an exchange broken off). Its cause, when there was
+  one, is its `source`.
+- `Transport` has one method, `send(&self, Request) -> Result<Response,
+  TransportError>`. It is synchronous, makes one attempt and does not retry.
+  It takes `&self`, so one transport serves many sends (a client that needs
+  mutation uses interior mutability), and it is object safe, used as
+  `&dyn Transport`. It has no `Send` or `Sync` supertrait: a host that
+  shares one transport across threads names the bound where it holds it,
+  as `&(dyn Transport + Sync)`, and a single-threaded host needs neither.
+
+```rust
+use statifier::basichttp::{Request, Response, Transport, TransportError};
+
+// The stand-in for the host's own HTTP client; this is where the host's
+// client goes. It answers in memory.
+struct HostClient;
+
+impl HostClient {
+    fn post(
+        &self,
+        url: &str,
+        _headers: &[(String, String)],
+        body: &[u8],
+    ) -> Result<(u16, Vec<u8>), std::io::Error> {
+        if url.starts_with("http://localhost:") {
+            Ok((200, body.to_vec()))
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::ConnectionRefused,
+                "refused",
+            ))
+        }
+    }
+}
+
+struct ClientTransport {
+    client: HostClient,
+}
+
+impl Transport for ClientTransport {
+    fn send(&self, request: Request) -> Result<Response, TransportError> {
+        match self
+            .client
+            .post(&request.address, &request.headers, &request.body)
+        {
+            Ok((status, body)) => Ok(Response::new(status, Vec::new(), body)),
+            Err(error) => Err(TransportError::with_source("the request failed", error)),
+        }
+    }
+}
+
+fn main() {
+    let transport = ClientTransport { client: HostClient };
+    let transport: &dyn Transport = &transport;
+
+    let request = Request::new(
+        "POST",
+        "http://localhost:8080/s1",
+        vec![("Content-Type".to_owned(), "text/plain".to_owned())],
+        "e.go",
+    );
+    let response = transport.send(request).unwrap();
+    assert_eq!(response.status, 200);
+
+    let refused = Request::new("POST", "http://example.invalid/s1", Vec::new(), "e.go");
+    assert!(transport.send(refused).is_err());
+}
+```
+
 ## Positions
 
 A chart's position moves between machines in the reference's string-id
@@ -298,7 +384,8 @@ reads in the other.
   gate on the toolchain `mise.toml` pins.
 - **One runtime dependency**, the [predicator-rs](https://crates.io/crates/predicator-rs)
   crate, which evaluates a chart's conditions, expressions and assignments.
-  `serde` is optional, behind the `serde` feature, off by default. The
+  `serde` is optional, behind the `serde` feature, off by default.
+  `basichttp` adds no dependency, and the crate ships no HTTP transport. The
   SCXML reader is written here: no XML crate, no JSON crate, no HTTP client
   and no async runtime.
 - **The standard library is required.** The crate is not `no_std`.

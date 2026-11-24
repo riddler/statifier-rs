@@ -18,6 +18,10 @@ default = []
 # Serialize and Deserialize for a position, an effect and a stopped chart's
 # answer, with the predicator crate's own for its values.
 serde = ["dep:serde", "predicator-rs/serde"]
+# The Basic HTTP transport seam: the Transport trait a host implements and
+# the request, response and error values it exchanges. Adds no dependency;
+# the crate ships no transport.
+basichttp = []
 
 [dependencies]
 # The predicator crate: compiles and evaluates the conditions, values and
