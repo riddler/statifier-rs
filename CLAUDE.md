@@ -139,8 +139,8 @@ Also avoid `bd edit`, which opens `$EDITOR` and blocks. Use
 
 statifier for Rust: the interpreter core of an SCXML statechart engine, a
 conformant sibling of the Elixir reference `statifier`, checked against its
-conformance corpus. It is the crates.io crate `statifier` (library
-`statifier`). It has one runtime dependency, the predicator crate
+conformance corpus. It will be published as the crates.io crate `statifier`
+(library `statifier`). It has one runtime dependency, the predicator crate
 (`predicator-rs` on crates.io, library `predicator_rs`), which evaluates
 conditions, expressions and assignments; it is a crates.io dependency at a
 released version, never a git or path dependency. The SCXML front end is
@@ -148,10 +148,10 @@ hand-written, with no XML crate. The crate targets `std` and builds on the
 Rust version `rust-version` in `Cargo.toml` names.
 
 The tree holds these instructions, the wurk manifest (`.claude/wurk.json`)
-and the tracker's configuration (`.beads/`), the crate's scaffold, its gate,
-the workflows, and the vendored corpus with its conformance apparatus; the
-interpreter arrives in the beads that follow, and until it does the registry
-claims no case.
+and the tracker's configuration (`.beads/`), the crate, its gate, the
+workflows, and the vendored corpus with its conformance apparatus. The
+interpreter and the driver are built, and the registry claims the `scion`,
+`w3c-mandatory` and `w3c-optional` cases it lists.
 
 - **The crate is `statifier`.** Its one hand-made publish is the
   maintainer's name claim at `0.0.0`; the first release from this
@@ -159,11 +159,13 @@ claims no case.
 - **The core contract is a value step.** Interpreting is
   `(state, event) -> (state, effects)`: the state is an immutable value and
   the effects are plain data. A driver keeps the external queue and virtual
-  timers and hands each registered send type to a host processor passed per
-  call. Every fallible call answers a `Result`, and there is no global
+  timers, and answers each send of a send type the host registered as an
+  effect for the host to deliver; it never calls host code.
+  Every fallible call answers a `Result`, and there is no global
   configuration.
 - **Interpreter core only.** Persistence and timer adapters are out of this
-  package. Host processors are passed per call.
+  package. The host registers its send types in the options it passes per
+  call.
 - **The corpus is the arbiter.** `conformance/statifier/` holds the corpus
   vendored from statifier-ex at a release tag, its tag, commit and hash
   recorded in `conformance/statifier.vendored.json`; `conformance/README.md`
@@ -180,8 +182,7 @@ assembled at the release prep from the fragments in `changelog.d/`.
 ## Build & Test
 
 The gate tasks live in `mise.toml`, and CI runs the same full gate on every
-push to `main` and every pull request (`.github/workflows/ci.yml`). Until
-`mise.toml` exists there is no gate to run.
+push to `main` and every pull request (`.github/workflows/ci.yml`).
 
 ```bash
 mise install            # the Rust toolchain and cargo tools mise.toml pins
@@ -193,9 +194,9 @@ mise run gate           # full gate
 
 - The full gate is `mise run gate`; the inner loop is `mise run gate:loop`.
   The full gate includes the corpus check (`mise run gate:corpus`) and the
-  registry check (`mise run gate:registry`). Only the full command is the advancement gate: a `gate:loop` run, like a
-  bare `cargo test` or any other scoped run, is never evidence for a claim
-  that the gate is green.
+  registry check (`mise run gate:registry`). Only the full command is the
+  advancement gate: a `gate:loop` run, like a bare `cargo test` or any other
+  scoped run, is never evidence for a claim that the gate is green.
 - **Never truncate the output.** No `| tail`, `| head`, `| grep`; truncating
   removes findings, not noise.
 - **Never go green by weakening the check.** Not by lowering the coverage
@@ -240,8 +241,9 @@ conventions rather than inventing a second set.
   value, answered as an `Err`.
 - **Every public enum is `#[non_exhaustive]`.**
 - **No global state.** No `static mut`, no thread-local, no `OnceLock` or
-  `lazy_static` configuration, no global configuration of any kind. Host
-  processors and clocks are passed per call.
+  `lazy_static` configuration, no global configuration of any kind. Send
+  types and options are passed per call, and the clock is a number the host
+  advances.
 - **No test-only seam in `src/`.** Outside `#[cfg(test)]`, tests reach the
   code through its public surface or through what a caller passes in.
 - **The supported Rust version is the `rust-version` in `Cargo.toml`**, and

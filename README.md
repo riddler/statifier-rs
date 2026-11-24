@@ -1,30 +1,96 @@
 # statifier
 
-An SCXML statechart interpreter for Rust, a conformant sibling of the Elixir
-[statifier](https://github.com/riddler/statifier-ex) package. It will read an
-SCXML document, run it as a value step (state and event in, new state and
-effects out) and be checked against the conformance corpus that statifier-ex
-publishes.
+[![MIT License][badge_license_url]](LICENSE)
+[![CI][badge_ci_url]][ci_url]
 
-This crate is not usable yet. Version `0.0.0` holds the name `statifier` on
-crates.io; the first real release follows. On `main` the crate reads a
-chart: `statifier::compile` takes an SCXML document's source and answers an
-immutable machine (every state interned, every expression compiled through
-the [predicator-rs](https://crates.io/crates/predicator-rs) crate, the
-validator's warnings carried on it), or the refusals of the first stage
-that refused the document, each with a reason, a message and a span.
-`Machine::start` starts the chart in execution, and the state it answers
-moves by `State::step` (an external event) and `State::advance` (the
-virtual clock); each call answers a new state and the effects it produced,
-and leaves the state it was given unchanged. `State::active_leaf_states`
-reads the active leaf states, the set a conformance case's expected
-configuration names, and `State::active_leaf_count` counts them, a state
-with no id included. The driver takes no runtime,
-thread, clock or I/O of its own: a `<send>` of a type the host registered
-is answered as an effect for the host to deliver.
+An SCXML statechart interpreter for Rust, a conformant sibling of the Elixir
+[statifier](https://github.com/riddler/statifier-ex) package. It reads an
+SCXML document, executes it as a value step (a state and an event in, a new
+state and the effects the step produced out), and is checked against the
+conformance corpus that statifier-ex publishes. It has no runtime, thread,
+clock or I/O of its own: a host drives it, and everything the chart does that
+the outside world can see comes back as plain data.
+
+## Why statifier
+
+A workflow, a form flow or a protocol is easier to get right as a statechart
+than as a tangle of flags, and SCXML is the W3C's standard notation for one.
+Running a chart as a process, as the reference does, ties it to that
+runtime. Here a running chart is an immutable value: a call takes a state
+and answers a new one, so a host can keep a state, keep several, try an
+event against one and discard the answer, move it between machines, or
+store it and resume it later, with no scheduler to coordinate with. The
+semantics are not this crate's to invent: they are the reference's, and a
+shared corpus decides every disagreement.
+
+## Install
+
+Add the crate to your `Cargo.toml`:
+
+```toml
+[dependencies]
+statifier = "0.1"
+```
+
+The crate is `statifier` on crates.io and the library is imported as
+`statifier`. It is not published yet: a `0.0.0` release will hold the name
+and the first real release is `0.1.0`, so until then depend on the
+repository by path or git. The optional `serde` feature is off by default;
+turn it on with `statifier = { version = "0.1", features = ["serde"] }`.
+
+## Basic usage
 
 ```rust
-use statifier::Options;
+use statifier::{Options, Value};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Compile once: a machine is an immutable value that holds the chart.
+    let machine = statifier::compile(
+        r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" initial="a">
+             <state id="a"><transition event="e.go" target="b"/></state>
+             <final id="b"/>
+           </scxml>"#,
+    )
+    .map_err(|refusals| format!("{refusals:?}"))?;
+
+    // Start it, then move it with events. Each call answers a new state.
+    let started = machine.start(Options::new("s-1"))?;
+    assert_eq!(started.state.configuration(), ["a"]);
+
+    let moved = started.state.step("e.go", Value::Undefined)?;
+    assert_eq!(started.state.configuration(), ["a"], "the old state is unchanged");
+    assert_eq!(moved.state.done().map(|done| done.configuration.clone()), Some(vec!["b".to_owned()]));
+    Ok(())
+}
+```
+
+## The driver and its results
+
+A host holds a [`Machine`] and moves a chart in execution through four
+calls. Each answers a `Moved`: the new `State` and the `effects` the call
+produced, in the order they were produced.
+
+- `Machine::start(options)` enters the chart's initial states and runs it to
+  a stable configuration. `Options::new(session_id)` is the options, with
+  starting datamodel values, the send types the host delivers itself, the
+  round budget and a trace flag as fields to set.
+- `State::step(name, data)` takes one external event and runs it, and every
+  event the chart sends itself, to a stable configuration.
+- `State::advance(ms)` moves the virtual clock forward and fires every timer
+  due by then, earliest first. The clock is a number the host moves: nothing
+  here reads the system clock, so a test advances an hour in no time.
+- `State::export_position()` and `Machine::import_position(&position)` move
+  a chart between machines (below).
+
+A state is read without moving it: `configuration()` (the active states'
+ids), `active_leaf_states()` and `active_leaf_count()`, `done()` (`None`
+while the chart runs; once it has stopped, its donedata and the
+configuration it stopped in), `now_ms()` and `next_due_ms()`, the virtual
+time the earliest pending timer fires at, which is when a host next calls
+`advance`.
+
+```rust
+use statifier::{Options, Value};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let machine = statifier::compile(
@@ -36,32 +102,139 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .map_err(|refusals| format!("{refusals:?}"))?;
     let started = machine.start(Options::new("s-1"))?;
-    assert_eq!(started.state.configuration(), ["a"]);
-    let moved = started.state.advance(1_000)?;
+    assert_eq!(started.state.next_due_ms(), Some(1_000));
+
+    // Nothing is due yet, and the clock moves.
+    let early = started.state.advance(999)?;
+    assert_eq!(early.state.configuration(), ["a"]);
+    assert_eq!(early.state.now_ms(), 999);
+
+    // The delayed send fires, and the chart stops in its final state.
+    let moved = early.state.advance(1)?;
+    assert_eq!(moved.state.now_ms(), 1_000);
     assert_eq!(moved.state.done().map(|done| done.configuration.clone()), Some(vec!["b".to_owned()]));
     Ok(())
 }
 ```
 
 A chart's datamodel holds predicator values: `statifier::Value` is the
-predicator-rs crate's `Value`, re-exported rather than mirrored, so a
-value a host passes in and a value an expression answers are one type.
-That type is part of this crate's public API, so a release of this crate
-that moves to a new minor version of predicator-rs is a new minor version
-of this crate too.
+predicator-rs crate's `Value`, re-exported rather than mirrored, so a value
+a host passes in and a value an expression answers are one type. That type
+is part of this crate's public API, so a release of this crate that moves
+to a new minor version of predicator-rs is a new minor version of this
+crate too.
+
+## Refusals are values
+
+Nothing a host passes in makes the crate panic: a document, an event, a
+duration, a position, a send result. A call that cannot proceed answers an
+`Err`, and every public enum is `#[non_exhaustive]`, so a host matches with
+a wildcard arm.
+
+- `compile` answers the `Refusal`s of the first stage that refused the
+  document (the reader, lowering, the validator or the compiler), every one
+  that stage found, each with a `reason()` (the reference's reason, under
+  its name), a `message()` for a person and a `span()` of the source.
+- A call that moves a chart answers an `Error`: `NotRunning` once the chart
+  has stopped, `InvalidDuration` for an `advance` that would move the clock
+  past its largest value, `BuiltInSendTypes` for options that register a
+  type the crate delivers itself.
+- A position that cannot be exported or imported answers an `ExportError`
+  or an `ImportError`.
+
+```rust
+use statifier::{CompileReason, Options, Reason, Value};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // A document is refused with a reason, a message and a span.
+    let refusals = statifier::compile(
+        r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0">
+             <state id="a"><transition cond="x >" target="a"/></state>
+           </scxml>"#,
+    )
+    .unwrap_err();
+    assert!(matches!(
+        refusals[0].reason(),
+        Reason::Compile(CompileReason::ExpressionCompileError { .. })
+    ));
+    assert_eq!(refusals[0].span().start_line, 2);
+
+    // A stopped chart takes no more events.
+    let machine = statifier::compile(
+        r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" initial="a">
+             <final id="a"/>
+           </scxml>"#,
+    )
+    .map_err(|refusals| format!("{refusals:?}"))?;
+    let stopped = machine.start(Options::new("s-1"))?.state;
+    assert_eq!(
+        stopped.step("e.go", Value::Undefined).unwrap_err(),
+        statifier::Error::NotRunning
+    );
+    Ok(())
+}
+```
+
+## Effects are data
+
+Interpreting never logs, never writes anywhere and never delivers an event
+itself. Everything the chart did that a host may observe is an `Effect`, an
+owned value the host reads in the order the chart made it: a `<log>` that
+ran, a write to the datamodel, a `<send>` for the host to deliver, a delayed
+send, a cancel, an invoke, and the chart's own stop. A host matches the
+variants it acts on, with a wildcard arm and `..` for the fields, since each
+is `#[non_exhaustive]`.
+
+A host registers the send types it delivers itself in
+`Options::send_types`. A `<send>` of one of them is answered as an
+`Effect::Send` and is never routed or scheduled here, delayed or not; the
+crate calls no host code. The host delivers the message however it likes
+and, if the answer is an event for the chart, passes it back with `step`.
+
+```rust
+use statifier::{Effect, Options};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let machine = statifier::compile(
+        r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" initial="a">
+             <state id="a">
+               <onentry><send type="x-example" target="t1" event="e.out"/></onentry>
+             </state>
+           </scxml>"#,
+    )
+    .map_err(|refusals| format!("{refusals:?}"))?;
+
+    let mut options = Options::new("s-1");
+    options.send_types.insert("x-example".to_owned());
+    let started = machine.start(options)?;
+
+    let sends: Vec<_> = started
+        .effects
+        .iter()
+        .filter(|effect| matches!(effect, Effect::Send { .. }))
+        .collect();
+    assert_eq!(sends.len(), 1);
+    Ok(())
+}
+```
+
+With the `serde` feature an effect serializes as a map whose `kind` is the
+variant in snake case beside its fields in camel case.
+
+## Positions
 
 A chart's position moves between machines in the reference's string-id
-vocabulary: `State::export_position` answers a `Position` (every state
-named by the id the document wrote, the datamodel, the counters, the
-running flag and status, the trace flag and the round budget), and
-`Machine::import_position` reads one back into a state, onto the same
-chart or another that holds every state it names. A position carries the
+vocabulary: `State::export_position` answers a `Position` (every state named
+by the id the document wrote, the datamodel, the counters, the running flag
+and status, the trace flag and the round budget), and
+`Machine::import_position` reads one back into a state, onto the same chart
+or another that holds every state it names. A position carries the
 interpreter's state only: the virtual clock, a pending timer and a queued
-external event are the driver's, so an imported state starts with none,
-and the host schedules what it still expects on its own clock. The export
-refuses a state whose internal queue holds an event or that holds a
-state with no id; the import refuses, among others, every state id the
-chart does not hold, named at once.
+external event are the driver's, so an imported state starts with none, and
+the host schedules what it still expects on its own clock. The export
+refuses a state whose internal queue holds an event or that holds a state
+with no id; the import refuses, among others, every state id the chart does
+not hold, named at once.
 
 ```rust
 use statifier::{Options, Value};
@@ -76,27 +249,78 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let moved = machine.start(Options::new("s-1"))?.state.step("e.go", Value::Undefined)?;
     let position = moved.state.export_position()?;
 
+    // Resume on a machine compiled afresh, and drive on: it answers what the
+    // state it was taken from answers.
     let again = statifier::compile(source).map_err(|refusals| format!("{refusals:?}"))?;
     let resumed = again.import_position(&position)?;
     assert_eq!(resumed.configuration(), ["b"]);
+    let next = resumed.step("e.go", Value::Undefined)?.state;
+    let original = moved.state.step("e.go", Value::Undefined)?.state;
+    assert_eq!(next.done(), original.done());
     Ok(())
 }
 ```
 
-The optional `serde` feature, off by default, implements `Serialize` and
-`Deserialize` for a position, an effect and a stopped chart's `Done`, and
-turns on predicator-rs's own for a value. The implementations are written
-by hand, so the feature adds the `serde` crate alone. A position's JSON form has the
-keys of the TypeScript sibling's, in camel case, each datamodel root
-written as predicator's tagged text of its value, so a position one
-sibling writes reads in the other. An effect is a map whose `kind` is the
-variant in snake case beside its fields in camel case.
+The proof that a position carries what it needs is a stage of the gate
+(`mise run gate:position`). For every scion case of the corpus, the stage
+exports the position after the start and after every step, takes it through
+JSON text, compiles the case's source again into a fresh machine, imports
+the position there and drives the rest of the case's events on it. The
+imported state must agree with the unbroken drive at that point and after
+every later step: the same export answer, the same configuration and active
+leaf states, and the same answer on whether the chart has stopped. A point a
+position cannot carry (a pending timer is the driver's, not the position's)
+is counted and named, never skipped, and the stage fails on any
+disagreement.
 
-The conformance corpus this crate is checked against is vendored under
-`conformance/`, whose README says what is copied and from where. The
-registry, `conformance/registry.json`, names the corpus cases this crate
-passes, in the scion and w3c suites today, and a gate stage runs the
-position round trip over every scion step.
+The optional `serde` feature implements `Serialize` and `Deserialize` for a
+position, an effect and a stopped chart's `Done`, and turns on
+predicator-rs's own for a value. The implementations are written by hand, so
+the feature adds the `serde` crate alone. A position's JSON form has the keys
+of the TypeScript sibling's, in camel case, each datamodel root written as
+predicator's tagged text of its value, so a position one sibling writes
+reads in the other.
+
+## Compatibility
+
+- **Rust 1.85 or later** (`rust-version` in `Cargo.toml`, edition 2024). CI
+  runs the test suite with every feature on that Rust, and the full quality
+  gate on the toolchain `mise.toml` pins.
+- **One runtime dependency**, the [predicator-rs](https://crates.io/crates/predicator-rs)
+  crate, which evaluates a chart's conditions, expressions and assignments.
+  `serde` is optional, behind the `serde` feature, off by default. The
+  SCXML reader is written here: no XML crate, no JSON crate, no HTTP client
+  and no async runtime.
+- **The standard library is required.** The crate is not `no_std`.
+- **wasm32-unknown-unknown.** CI builds the library for that target, with the
+  default features and with every feature. Nothing here reads the system
+  clock: time is a number the host passes to `advance`.
+- **No unsafe code.** The crate is `#![forbid(unsafe_code)]`, and has no
+  global state: no `static mut`, no thread-local and no global
+  configuration; the state is an immutable value and the options are passed
+  per call.
+
+## Conformance
+
+The chart semantics are defined by the reference implementation's
+conformance corpus, vendored under `conformance/` at the release tag
+`v2.16.0` of statifier-ex (`conformance/statifier.vendored.json` names the
+tag, the commit and the corpus hash, and `conformance/README.md` says what
+is copied and from where). `conformance/registry.json` records one entry per
+corpus case this crate passes, and the claims those entries make. At this
+head:
+
+| Claim | Cases passing |
+|---|---|
+| scion | 119 |
+| w3c-mandatory | 152 |
+| w3c-optional | 2 |
+| Total | 273 |
+
+No case is skipped. A case this crate cannot pass is a defect to bring to
+the reference, never an entry on a skip list. The full gate re-runs the
+corpus and fails when the registry and a run made now disagree, and a test
+fails when the table above and the registry disagree.
 
 ## Differences from the reference
 
@@ -255,6 +479,32 @@ crate sees:
 evaluation can supply: statifier-ex refuses such a chart with the reason
 `unknown_function`, and here the call fails only when it is evaluated.
 
+## Documentation
+
+- [The API reference on docs.rs](https://docs.rs/statifier): every public
+  type, function and method, with examples that run as tests.
+- [The changelog](CHANGELOG.md): what changed in each version.
+- [The conformance corpus](conformance/README.md): what is vendored, from
+  where, and what is this repository's own.
+
+## Development
+
+After checking out the repository, run `mise install` for the Rust toolchain
+and the cargo tools `mise.toml` pins. Then `mise run gate:loop` runs the
+inner loop (format, lints, tests), and `mise run gate` runs the full quality
+gate: the inner loop, the corpus, registry and position checks, the docs
+with every feature and with none, line coverage and `cargo deny check`. The
+README's Rust examples run as doctests.
+
+## Contributing
+
+Bug reports and pull requests are welcome on GitHub at
+https://github.com/riddler/statifier-rs.
+
 ## License
 
 MIT, see [LICENSE](LICENSE).
+
+[badge_license_url]: https://img.shields.io/badge/license-MIT-blue.svg
+[badge_ci_url]: https://github.com/riddler/statifier-rs/actions/workflows/ci.yml/badge.svg
+[ci_url]: https://github.com/riddler/statifier-rs/actions/workflows/ci.yml

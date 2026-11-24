@@ -51,8 +51,9 @@ jobs:
           version: 2026.8.2
 
       # The gate is mise.toml's `gate` task: fmt, clippy, the corpus check,
-      # the registry check, the position round trip, the tests with every feature and with none, the docs with every feature and with
-      # none, coverage and cargo deny. The command is read out of
+      # the registry check, the position round trip, the tests with every
+      # feature and with none, the docs with every feature and with none,
+      # coverage and cargo deny. The command is read out of
       # .claude/wurk.json (gate.full) rather than written here, so the gate
       # CI runs and the gate an agent must have green are one definition with
       # one place to change it. It is read and executed inside the step
