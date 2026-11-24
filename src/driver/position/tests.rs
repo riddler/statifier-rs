@@ -36,6 +36,19 @@ fn with_history() -> (Machine, State) {
     (machine, out.state)
 }
 
+// The chart [`with_history`] runs, its `q` holding two `<invoke>` elements,
+// which a position imported into it may name as live.
+fn with_invokes() -> Machine {
+    machine(
+        r#" initial="p""#,
+        r#"<state id="p" initial="a"><history id="h" type="deep"><transition target="a"/></history>
+             <state id="a" initial="a1"><state id="a1"><transition event="e.next" target="a2"/></state><state id="a2"/></state>
+             <transition event="e.out" target="q"/></state>
+           <state id="q"><invoke id="i1" type="x-none"/><invoke id="i2" type="x-none"/>
+             <transition event="e.back" target="h"/></state>"#,
+    )
+}
+
 // Sabotage: with the export naming the configuration as the entered
 // states, this goes red.
 #[test]
@@ -241,7 +254,8 @@ fn the_import_refuses_a_history_value_the_chart_cannot_restore() {
 // replaces the first and this goes red.
 #[test]
 fn the_import_refuses_two_invocations_of_one_invoke_and_carries_the_rest() {
-    let (machine, state) = with_history();
+    let (_, state) = with_history();
+    let machine = with_invokes();
     let mut position = state.export_position().unwrap();
     position.states_to_invoke = set(&["q"]);
     position.invoke_counter = 2;
@@ -272,6 +286,78 @@ fn the_import_refuses_two_invocations_of_one_invoke_and_carries_the_rest() {
     assert_eq!(
         refused.to_string(),
         "two invocations name invoke 0 of \"q\""
+    );
+}
+
+// An imported live invocation must name an `<invoke>` its state holds.
+// Sabotage: with the bound check removed, the invocation of q's third
+// `<invoke>` and the one of a state with none import, and this goes red.
+#[test]
+fn the_import_refuses_an_invocation_of_an_invoke_its_state_does_not_hold() {
+    let (_, state) = with_history();
+    let machine = with_invokes();
+    let mut position = state.export_position().unwrap();
+    position.active_invocations = vec![ActiveInvocation {
+        state: "q".to_owned(),
+        invoke_index: 2,
+        invoke_id: "i3".to_owned(),
+    }];
+    let refused = machine.import_position(&position).err();
+    assert_eq!(
+        refused,
+        Some(ImportError::UnknownInvoke {
+            state: "q".to_owned(),
+            invoke_index: 2
+        })
+    );
+    assert_eq!(
+        refused.map(|error| error.to_string()).as_deref(),
+        Some("\"q\" holds no invoke 2")
+    );
+    position.active_invocations[0].state = "a".to_owned();
+    position.active_invocations[0].invoke_index = 0;
+    assert_eq!(
+        machine.import_position(&position).unwrap_err(),
+        ImportError::UnknownInvoke {
+            state: "a".to_owned(),
+            invoke_index: 0
+        }
+    );
+    position.active_invocations[0].invoke_index = u64::MAX;
+    assert!(machine.import_position(&position).is_err());
+}
+
+// An imported live invocation has no child: its state's exit cancels it,
+// answering the cancel and nothing more, and the export after names none.
+// Sabotage: with step.rs's depart not cancelling a state's invocations, no
+// CancelInvoke is answered and the invocation is still exported; red.
+#[test]
+fn an_imported_invocation_is_cancelled_when_its_state_exits() {
+    let (_, state) = with_history();
+    let machine = with_invokes();
+    let mut position = state.export_position().unwrap();
+    position.active_invocations = vec![ActiveInvocation {
+        state: "q".to_owned(),
+        invoke_index: 1,
+        invoke_id: "i2".to_owned(),
+    }];
+    let imported = machine.import_position(&position).unwrap();
+    let back = imported.step("e.back", Value::Undefined).unwrap();
+    let cancels: Vec<&str> = back
+        .effects
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::CancelInvoke { invoke_id, .. } => Some(invoke_id.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(cancels, ["i2"]);
+    assert!(
+        back.state
+            .export_position()
+            .unwrap()
+            .active_invocations
+            .is_empty()
     );
 }
 
@@ -493,7 +579,7 @@ mod serde {
     // `x` is the string "1" and this goes red.
     #[test]
     fn a_position_in_the_siblings_form_reads_and_imports() {
-        let (machine, _) = with_history();
+        let machine = with_invokes();
         let sibling = json!({
             "identity": {"contentHash": "abc", "name": null, "version": "3"},
             "configuration": ["q"],
@@ -703,6 +789,10 @@ mod serde {
                 state: 4,
                 invoke: 0,
             },
+            BlockOwner::Invoke {
+                state: 5,
+                invoke: 1,
+            },
         ];
         let mut effects: Vec<Effect> = owners
             .iter()
@@ -736,7 +826,48 @@ mod serde {
             microstep: 1,
             round: 1,
         });
+        let mut data = Map::new();
+        data.insert("p", Value::from(1));
+        effects.push(Effect::Invoke {
+            invoke_id: "a.inv_1".into(),
+            invoke_type: Some(Value::from("scxml")),
+            src: None,
+            params: Value::Map(data),
+            content: Some(Value::from("<scxml/>")),
+            autoforward: true,
+            state_index: 1,
+            invoke_index: 0,
+            macrostep: 1,
+            microstep: 1,
+            round: 1,
+        });
+        effects.push(Effect::CancelInvoke {
+            invoke_id: "a.inv_1".into(),
+            state_index: 1,
+            macrostep: 2,
+            microstep: 1,
+            round: 1,
+        });
+        effects.push(Effect::Autoforward {
+            invoke_id: "a.inv_1".into(),
+            state_index: 1,
+            event: Value::from("e"),
+            macrostep: 2,
+            microstep: 0,
+            round: 0,
+        });
+        let wrapped = Effect::Child {
+            session_id: "s-1.a.inv_1".into(),
+            effect: Box::new(effects[0].clone()),
+        };
+        effects.push(Effect::Child {
+            session_id: "s-1.a.inv_1.b".into(),
+            effect: Box::new(wrapped),
+        });
         let text = serde_json::to_string(&effects).unwrap();
+        for kind in ["invoke", "cancel_invoke", "autoforward", "child"] {
+            assert!(text.contains(&format!(r#""kind":"{kind}""#)), "{kind}");
+        }
         assert_eq!(serde_json::from_str::<Vec<Effect>>(&text).unwrap(), effects);
         let refused = |text: &str| {
             serde_json::from_str::<Effect>(text)

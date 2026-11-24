@@ -202,6 +202,15 @@ pub enum ImportError {
         /// Which of its `<invoke>` elements.
         invoke_index: u64,
     },
+    /// A live invocation names an `<invoke>` its state does not hold: its
+    /// index is not below the state's count of `<invoke>` elements.
+    #[non_exhaustive]
+    UnknownInvoke {
+        /// The state's id.
+        state: String,
+        /// The index named.
+        invoke_index: u64,
+    },
 }
 
 impl fmt::Display for ImportError {
@@ -230,6 +239,10 @@ impl fmt::Display for ImportError {
                 formatter,
                 "two invocations name invoke {invoke_index} of {state:?}"
             ),
+            ImportError::UnknownInvoke {
+                state,
+                invoke_index,
+            } => write!(formatter, "{state:?} holds no invoke {invoke_index}"),
         }
     }
 }
@@ -323,7 +336,10 @@ impl Machine {
     /// no queued external event, not halted. The session id is the
     /// datamodel's `_sessionid`, and the registered send types are the
     /// entries of `_ioprocessors` other than the SCXML Event I/O
-    /// Processor's, as [`Machine::start`] writes them.
+    /// Processor's, as [`Machine::start`] writes them. A position carries
+    /// no child session, so a live invocation it names has none: it is
+    /// sent nothing, forwarded nothing and returns nothing, and its state's
+    /// exit cancels it.
     ///
     /// A stopped position imports stopped: [`State::done`] answers, and
     /// [`State::step`] refuses. A position carries no donedata and a stopped
@@ -334,9 +350,10 @@ impl Machine {
     /// `_sessionid` is not a string; with [`ImportError::UnknownStateIds`],
     /// naming every one, when the position names a state the chart does not
     /// hold; with [`ImportError::InvalidHistoryValue`] when a recorded
-    /// history value is not one the chart can restore; and with
-    /// [`ImportError::DuplicateInvocation`] when two live invocations name
-    /// one `<invoke>`. Every state the position names is checked against
+    /// history value is not one the chart can restore; and, live invocation
+    /// by live invocation, with [`ImportError::UnknownInvoke`] when one names
+    /// an `<invoke>` its state does not hold and with
+    /// [`ImportError::DuplicateInvocation`] when two name one `<invoke>`. Every state the position names is checked against
     /// the chart before any of it is read.
     pub fn import_position(&self, position: &Position) -> Result<State, ImportError> {
         let session_id = match position.datamodel.get(&Key::from(SESSION_ID)) {
@@ -369,6 +386,16 @@ impl Machine {
         let mut active_invocations = BTreeMap::new();
         for invocation in &position.active_invocations {
             let key = (index(&invocation.state), invocation.invoke_index);
+            let held = chart
+                .states
+                .get(key.0)
+                .map_or(0, |state| state.invoke.len());
+            if usize::try_from(invocation.invoke_index).map_or(true, |at| at >= held) {
+                return Err(ImportError::UnknownInvoke {
+                    state: invocation.state.clone(),
+                    invoke_index: invocation.invoke_index,
+                });
+            }
             if active_invocations
                 .insert(key, invocation.invoke_id.clone())
                 .is_some()
@@ -421,18 +448,14 @@ impl Machine {
             active_leaf_states: leaf_ids(&core, core.configuration.iter().copied()),
             active_leaf_count: leaf_count(&core, core.configuration.iter().copied()),
         });
-        Ok(State {
+        let mut state = State::fresh(
             core,
             session_id,
-            round_budget: position.max_macrostep_rounds,
-            trace: position.trace,
-            now_ms: 0,
-            timers: Vec::new(),
-            sequence: 0,
-            external_queue: VecDeque::new(),
-            halted: false,
-            done,
-        })
+            position.max_macrostep_rounds,
+            position.trace,
+        );
+        state.done = done;
+        Ok(state)
     }
 }
 

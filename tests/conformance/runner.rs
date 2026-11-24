@@ -22,11 +22,6 @@ pub const NOT_DRIVEN: &str = "not driven: this runner drives the scion and w3c s
 /// honour.
 pub const SEND_TYPES: &str = "send_types";
 
-/// The reason a case whose chart holds an `<invoke>` fails: the crate starts
-/// no invocation yet, so such a case could agree only by never exercising
-/// what it tests.
-pub const NO_INVOKE: &str = "the chart holds an <invoke>, and invoke is not built yet";
-
 /// The `host` key naming the Event I/O Processors a case needs run; this
 /// runner runs none, so a case naming one fails naming each.
 pub const EVENT_IO_PROCESSORS: &str = "event_io_processors";
@@ -75,10 +70,6 @@ pub enum Outcome {
 /// a case carrying any other key, the Event I/O Processors of
 /// [`EVENT_IO_PROCESSORS`] among them, fails naming what it needs.
 ///
-/// A case whose source holds an `<invoke>` element fails with
-/// [`NO_INVOKE`] before it is driven: the crate starts no invocation yet,
-/// and a case that agrees without one has not tested what it names.
-///
 /// It drives the suites in [`DRIVEN_SUITES`]; every other case fails with
 /// [`NOT_DRIVEN`]. A case that does not compile, that the driver refuses,
 /// or whose configuration disagrees fails with the reason.
@@ -100,9 +91,6 @@ fn drive_case(item: &Value) -> Result<(), String> {
         .get("source")
         .and_then(Value::as_str)
         .ok_or("the case has no source")?;
-    if holds_invoke(source) {
-        return Err(NO_INVOKE.to_owned());
-    }
     let machine = statifier::compile(source).map_err(|refusals| {
         let messages: Vec<&str> = refusals.iter().map(|refusal| refusal.message()).collect();
         format!("the source does not compile: {}", messages.join("; "))
@@ -139,22 +127,6 @@ fn drive_case(item: &Value) -> Result<(), String> {
         )?;
     }
     Ok(())
-}
-
-/// Whether `source` holds an `<invoke>` start tag, under any namespace
-/// prefix: a `<`, an optional prefix and colon, then `invoke` ended by
-/// whitespace, `/` or `>`. Text that only looks like one, inside a comment
-/// or a CDATA section, is counted too, which can fail a case but never
-/// pass one.
-fn holds_invoke(source: &str) -> bool {
-    source.match_indices('<').any(|(at, _)| {
-        let rest = &source[at + 1..];
-        let name_end = rest
-            .find(|c: char| c.is_whitespace() || c == '/' || c == '>')
-            .unwrap_or(rest.len());
-        let name = &rest[..name_end];
-        name.rsplit(':').next() == Some("invoke") && name_end < rest.len()
-    })
 }
 
 /// The options a case starts with: its id as the session id, and the send
@@ -249,7 +221,7 @@ fn compare(state: &State, expected: &[String], at: &str) -> Result<(), String> {
     let unnamed = leaf_count(state).saturating_sub(found.len());
     if unnamed > 0 {
         return Err(format!(
-            "{at}: {unnamed} active leaf state(s) have no id; the expectation {found:?} cannot name them"
+            "{at}: {unnamed} active leaf state(s) have no id; the expectation {expected:?} cannot name them"
         ));
     }
     if found == expected {

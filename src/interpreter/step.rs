@@ -15,6 +15,7 @@
 
 use super::binding;
 use super::exit_entry::{self, Arrival, Entry};
+use super::invoke;
 use super::machine_state::{Event, MachineState, Status};
 use crate::datamodel::event_data;
 use crate::datamodel::{ERROR_EXECUTION, Scope, evaluate, evaluate_deferred};
@@ -50,19 +51,23 @@ pub(crate) fn enter<'t>(
     arrive_all(state, entry, effects);
 }
 
-/// `exitStates`: the history recorded from the configuration before
-/// anything leaves, then each state of the exit set, in exit order, runs
-/// its `<onexit>` blocks and leaves.
+/// `exitStates`: the exit set leaves the states to invoke and the history
+/// is recorded from the configuration before anything leaves; then each
+/// state of the exit set, in exit order, runs its `<onexit>` blocks,
+/// cancels its live invocations and leaves.
 fn exit_states(state: &mut MachineState, transitions: &[usize], effects: &mut Vec<Effect>) {
     let exit = exit_entry::exit_states(&state.snapshot(), transitions);
     state.history = exit.history;
+    for index in &exit.states {
+        state.states_to_invoke.remove(index);
+    }
     for index in exit.states {
         depart(state, index, effects);
     }
 }
 
-// One state leaving: its `<onexit>` blocks in document order, then out of
-// the configuration.
+// One state leaving: its `<onexit>` blocks in document order, its live
+// invocations cancelled, then out of the configuration.
 fn depart(state: &mut MachineState, index: usize, effects: &mut Vec<Effect>) {
     let machine = state.machine.clone();
     for (ordinal, block) in machine.chart().states[index].onexit.iter().enumerate() {
@@ -75,6 +80,7 @@ fn depart(state: &mut MachineState, index: usize, effects: &mut Vec<Effect>) {
             effects,
         );
     }
+    invoke::cancel_invocations(state, index, effects);
     state.configuration.remove(&index);
 }
 
@@ -85,13 +91,15 @@ fn arrive_all(state: &mut MachineState, entry: Entry, effects: &mut Vec<Effect>)
     }
 }
 
-// One state entering: it joins the configuration, binds its own `<data>` on
+// One state entering: it joins the configuration and the states to
+// invoke, binds its own `<data>` on
 // its first entry, runs its `<onentry>` blocks, its initial content and its
 // default-history content, then raises its completions, or, for a
 // top-level final, clears `running`.
 fn arrive(state: &mut MachineState, arrival: &Arrival, effects: &mut Vec<Effect>) {
     let index = arrival.index;
     state.configuration.insert(index);
+    state.states_to_invoke.insert(index);
     if state.entered_states.insert(index) {
         binding::enter_state(state, index, effects);
     }

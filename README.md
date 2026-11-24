@@ -196,9 +196,18 @@ made a synchronous value step:
   and writes an empty `_ioprocessors` entry for each registered type.
 - The `trace` option is taken and ignored: no trace effect is ported, so
   none is answered.
-- `Effect::SendDelayed` and `Effect::Cancel` do not carry the caller
-  context the reference copies from the external event that started the
-  macrostep, and a host event carries none.
+- `Effect::SendDelayed`, `Effect::Cancel`, `Effect::Invoke` and
+  `Effect::CancelInvoke` do not carry the caller context the reference
+  copies from the external event that started the macrostep, and a host
+  event carries none, so no `done.invoke` event carries one either.
+- An invoked child's session id is its parent's, a dot and the invoke id;
+  the reference gives an invoked child a session id of its own.
+- An invoked child inherits its parent's registered send types; the
+  reference makes that inheritance opt-in, off by default.
+- An invoked child runs inside its parent's call, and what it sends its
+  parent waits in the parent's mailbox until the parent's external queue is
+  empty; the reference's child is a process of its own, whose messages
+  reach the parent as the runtime delivers them.
 - `State::configuration` and `Done::configuration` leave out a state the
   document gave no id, as the reference leaves it out where it turns
   states into ids.
@@ -217,8 +226,9 @@ It differs in these parts of a position, the reference's
   takes the session from the process it resumes in.
 - The import refuses a recorded history value whose key is not a
   `<history>`, or that holds a history or a state outside the history's
-  parent, and two live invocations naming one `<invoke>`; the reference
-  imports either, and entering such a history need never finish.
+  parent, two live invocations naming one `<invoke>`, and a live
+  invocation naming an `<invoke>` its state does not hold; the reference
+  imports each, and entering such a history need never finish.
 - The registered send types of an imported state are the entries of its
   datamodel's `_ioprocessors` other than the SCXML Event I/O Processor's,
   as `Machine::start` writes them; the reference's driver stamps them

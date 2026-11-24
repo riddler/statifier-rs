@@ -81,7 +81,7 @@ pub enum Effect {
         /// The block the write belongs to; `None` only for a `<data>`
         /// binding. The value an empty `<finalize>` assigns carries
         /// [`BlockOwner::Finalize`], and an `<invoke>`'s `idlocation` write
-        /// will carry an owner of its own once invoke arrives.
+        /// carries [`BlockOwner::Invoke`].
         owner: Option<BlockOwner>,
         /// The macrostep counter when it ran.
         macrostep: u64,
@@ -266,6 +266,86 @@ pub enum Effect {
         /// The round counter when it ran.
         round: u64,
     },
+    /// An `<invoke>` ran: an invocation started in its state's invoke pass.
+    /// The SCXML type (none, `scxml` or the type's URI) is recorded live and
+    /// the driver starts its child session; any other type is answered for
+    /// the host and never recorded live.
+    #[non_exhaustive]
+    Invoke {
+        /// The invoke id: the `id` attribute as written, else one generated,
+        /// `inv_` and the session's invoke counter, after the state's id and
+        /// a dot when the state has one.
+        invoke_id: String,
+        /// The type, as `type` or `typeexpr` gave it; `None` when neither
+        /// was written or it was null.
+        invoke_type: Option<Value>,
+        /// The source, as `src` or `srcexpr` gave it; `None` when neither
+        /// was written or it was null. Nothing here fetches it.
+        src: Option<Value>,
+        /// The `namelist` and `<param>` values as a map of name to value
+        /// (the last of a repeated name kept), [`Value::Undefined`] when
+        /// there are none.
+        params: Value,
+        /// The `<content>`'s value, `None` when the `<invoke>` has none:
+        /// inline markup is its source text.
+        content: Option<Value>,
+        /// The `autoforward` attribute.
+        autoforward: bool,
+        /// The index of the state holding the `<invoke>`.
+        state_index: usize,
+        /// Which of the state's `<invoke>` elements, in document order from
+        /// 0.
+        invoke_index: usize,
+        /// The macrostep counter when it ran.
+        macrostep: u64,
+        /// The microstep counter when it ran.
+        microstep: u64,
+        /// The round counter when it ran.
+        round: u64,
+    },
+    /// The state holding a live invocation exited: the invocation is
+    /// cancelled and its child stopped.
+    #[non_exhaustive]
+    CancelInvoke {
+        /// The invoke id.
+        invoke_id: String,
+        /// The index of the state that exited.
+        state_index: usize,
+        /// The macrostep counter when it exited.
+        macrostep: u64,
+        /// The microstep counter when it exited.
+        microstep: u64,
+        /// The round counter when it exited.
+        round: u64,
+    },
+    /// An external event reached a live invocation whose `<invoke>` sets
+    /// `autoforward`: the event is forwarded to the child unchanged.
+    #[non_exhaustive]
+    Autoforward {
+        /// The invoke id.
+        invoke_id: String,
+        /// The index of the state holding the `<invoke>`.
+        state_index: usize,
+        /// The event, as `_event` reads it: a map of its name, type, send
+        /// id, origin, origin type, invoke id and data.
+        event: Value,
+        /// The macrostep counter when it was forwarded.
+        macrostep: u64,
+        /// The microstep counter when it was forwarded.
+        microstep: u64,
+        /// The round counter when it was forwarded.
+        round: u64,
+    },
+    /// An effect an invoked child session answered, among the effects of
+    /// the call that ran it, in the order it was made. A grandchild's comes
+    /// wrapped once, naming its own session.
+    #[non_exhaustive]
+    Child {
+        /// The child's session id: its parent's, a dot and the invoke id.
+        session_id: String,
+        /// The effect.
+        effect: Box<Effect>,
+    },
 }
 
 /// The block of executable content an effect came from. State and
@@ -295,6 +375,14 @@ pub enum BlockOwner {
     Transition {
         /// The transition's index.
         transition: usize,
+    },
+    /// An `<invoke>`, for its `idlocation` write.
+    #[non_exhaustive]
+    Invoke {
+        /// The index of the state holding the `<invoke>`.
+        state: usize,
+        /// Which of the state's `<invoke>` elements.
+        invoke: usize,
     },
     /// An `<invoke>`'s `<finalize>` block.
     #[non_exhaustive]
