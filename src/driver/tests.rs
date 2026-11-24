@@ -1062,3 +1062,44 @@ fn an_imported_state_gives_a_child_empty_entries() {
         ]
     );
 }
+
+// Sabotage: with Options::target_required ignored, the chart stays in `a`
+// and this goes red.
+#[test]
+fn a_target_less_send_of_a_type_that_requires_one_raises_error_communication() {
+    let chart = machine(
+        r#" initial="a""#,
+        r#"<state id="a">
+             <onentry><send event="x" type="x-a" id="k"/></onentry>
+             <transition event="error.communication" cond="_event.sendid == 'k'" target="b"/>
+           </state>
+           <state id="b"/>"#,
+    );
+    let mut options = Options::new("s-1");
+    options.send_types = ["x-a"].into_iter().map(String::from).collect();
+    let unmarked = chart.start(options.clone()).expect("a start");
+    assert_eq!(unmarked.state.configuration(), ["a"]);
+    options.target_required.insert("x-a".to_owned());
+    let marked = chart.start(options.clone()).expect("a start");
+    assert_eq!(marked.state.configuration(), ["b"]);
+    assert!(
+        marked
+            .effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Send { target: None, .. }))
+    );
+    // A name the options do not register changes nothing.
+    let mut unregistered = Options::new("s-1");
+    unregistered.target_required.insert("x-a".to_owned());
+    assert!(
+        machine(
+            r#" initial="a""#,
+            r#"<state id="a"><onentry><send event="x" type="x-a"/></onentry></state>"#
+        )
+        .start(unregistered)
+        .is_ok_and(|moved| moved
+            .effects
+            .iter()
+            .all(|effect| !matches!(effect, Effect::Send { .. })))
+    );
+}

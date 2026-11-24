@@ -26,10 +26,13 @@ pub(super) fn request(session_id: &str, send: &Effect) -> Option<Request> {
         Value::String(target) => target.clone(),
         other => text(other),
     };
-    let named: Vec<(String, String)> = send
-        .event
-        .map(|event| vec![(EVENT_NAME.to_owned(), text(event))])
-        .unwrap_or_default();
+    let named: Vec<(String, String)> = match send.event {
+        // The reference names the event when its value is truthy, and
+        // writes an undefined one as the word.
+        None | Some(Value::Bool(false)) => Vec::new(),
+        Some(Value::Undefined) => vec![(EVENT_NAME.to_owned(), "undefined".to_owned())],
+        Some(event) => vec![(EVENT_NAME.to_owned(), text(event))],
+    };
     let (address, content_type, body) = match send.data {
         Value::Map(map) => {
             let mut members: Vec<(&Key, &Value)> = map.iter().collect();

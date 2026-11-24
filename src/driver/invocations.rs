@@ -74,6 +74,7 @@ impl Call {
         let session_id = format!("{}.{invoke_id}", self.state.session_id);
         let send_types = self.state.core.send_types.clone();
         let entries = self.state.ioprocessors.clone();
+        let target_required = self.state.target_required.clone();
         let ioprocessors = ioprocessor_entries(&send_types, &entries, &session_id);
         let started = interpreter::initialize(
             &machine,
@@ -94,6 +95,7 @@ impl Call {
             started.state,
             session_id,
             entries,
+            target_required,
             RoundBudget::default(),
             false,
         );

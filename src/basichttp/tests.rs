@@ -298,11 +298,17 @@ fn a_transport_error_is_a_miss_the_chart_takes() {
     assert_eq!(reported.state.configuration(), ["failed"]);
 }
 
-// Sabotage: with a send of no target handed to the transport, the double
-// records a request and this goes red.
+// For a host that took the type out of Options::target_required, deliver
+// reports the miss itself. Sabotage: with a send of no target handed to the
+// transport, the double records a request and this goes red.
 #[test]
 fn a_send_with_no_target_is_a_miss_and_requests_nothing() {
-    let moved = started(&sender("basichttp", ""));
+    let mut options = register(Options::new("s-1"), "http://h/base");
+    options.target_required.clear();
+    let moved = machine(&sender("basichttp", ""))
+        .start(options)
+        .expect("a start");
+    assert_eq!(moved.state.configuration(), ["a"]);
     let send = &sends(&moved.effects)[0];
     let double = Double::new();
     let delivery = deliver(&moved.state, send, &double).expect("a delivery");
@@ -459,4 +465,111 @@ fn a_miss_and_a_decode_error_display_what_they_are() {
         .to_string(),
         "the send key \"x\" is malformed"
     );
+}
+
+// The shape of the w3c case test577: a send to the session itself, then a
+// Basic HTTP send with no target. The chart takes error.communication on
+// its internal queue before the self-sent event, as the reference's
+// processor raises it, so `deliver` reports nothing more and requests
+// nothing. Sabotage: with the driver handing the target-less send to the
+// host only, the chart takes event1 first and ends in `fail`.
+#[test]
+fn a_target_less_send_raises_in_the_sending_session() {
+    let moved = machine(&format!(
+        r#"<state id="a">
+             <onentry><send event="event1"/><send event="test" id="k" type="{URI}"/></onentry>
+             <transition event="error.communication" cond="_event.sendid == 'k'" target="pass"/>
+             <transition event="*" target="fail"/>
+           </state>
+           <final id="pass"/>
+           <final id="fail"/>"#
+    ))
+    .start(register(Options::new("s-1"), "http://h/base"))
+    .expect("a start");
+    assert_eq!(
+        moved.state.done().map(|done| done.configuration.clone()),
+        Some(vec!["pass".to_owned()])
+    );
+    let send = sends(&moved.effects)
+        .into_iter()
+        .find(|send| {
+            matches!(
+                send,
+                Effect::Send {
+                    send_type: Some(_),
+                    ..
+                }
+            )
+        })
+        .expect("the Basic HTTP send");
+    let send = &send;
+    let double = Double::new();
+    let delivery = deliver(&moved.state, send, &double).expect("a delivery");
+    assert!(matches!(
+        delivery,
+        Delivery::Missed {
+            miss: Miss::NoTarget,
+            moved: None
+        }
+    ));
+    assert!(double.seen.borrow().is_empty());
+}
+
+// The error is raised once the macrostep that made the send is done, as the
+// reference performs it: an event raised after the send in the same block
+// is taken first (the reference build answered the same order, `r` then
+// `e`), and `deliver` reports it no second time. Sabotage: with the error
+// queued without the chart run, `e` never logs.
+#[test]
+fn a_target_less_send_raises_after_its_macrostep() {
+    let moved = machine(
+        r#"<state id="a">
+             <onentry><send event="x" type="basichttp" id="k"/><raise event="r"/></onentry>
+             <transition event="r" target="b"><log label="r"/></transition>
+             <transition event="error.communication" target="c"><log label="e"/></transition>
+           </state>
+           <state id="b"><transition event="error.communication" target="d"><log label="e"/></transition></state>
+           <state id="c"><transition event="r" target="d"><log label="r"/></transition></state>
+           <state id="d"/>"#,
+    )
+    .start(register(Options::new("s-1"), "http://h/base"))
+    .expect("a start");
+    let labels: Vec<String> = moved
+        .effects
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Log { label, .. } => label.clone(),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(labels, ["r", "e"]);
+    assert_eq!(moved.state.configuration(), ["d"]);
+    // The chart still runs, and deliver reports nothing a second time.
+    let send = &sends(&moved.effects)[0];
+    let delivery = deliver(&moved.state, send, &Double::new()).expect("a delivery");
+    assert!(matches!(
+        delivery,
+        Delivery::Missed {
+            miss: Miss::NoTarget,
+            moved: None
+        }
+    ));
+}
+
+// A delayed send with no target raises at once, as the reference's does.
+// Sabotage: with the delayed arm left out of the driver's check, the chart
+// stays in `a`.
+#[test]
+fn a_delayed_target_less_send_raises_at_once() {
+    let moved = machine(
+        r#"<state id="a">
+             <onentry><send event="x" type="basichttp" delay="1s" id="d"/></onentry>
+             <transition event="error.communication" cond="_event.sendid == 'd'" target="b"/>
+           </state>
+           <state id="b"/>"#,
+    )
+    .start(register(Options::new("s-1"), "http://h/base"))
+    .expect("a start");
+    assert_eq!(moved.state.configuration(), ["b"]);
+    assert_eq!(moved.state.next_due_ms(), None);
 }

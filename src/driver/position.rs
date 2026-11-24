@@ -452,6 +452,7 @@ impl Machine {
             core,
             session_id,
             BTreeMap::new(),
+            BTreeSet::new(),
             position.max_macrostep_rounds,
             position.trace,
         );
