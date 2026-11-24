@@ -649,3 +649,37 @@ fn immediate_sends_of_a_heartbeat_are_counted_at_one_virtual_time() {
     assert_eq!(effects, long.effects);
     assert_eq!(state.next_due_ms(), Some(11_000));
 }
+
+// A fan-out of delayed timers that land on one later time: each was
+// scheduled at an earlier time, so none is counted when it fires, and one
+// long advance answers what the same time in two short ones does.
+// Sabotage: with `next_instant` keeping the call's first sequence, the long
+// advance counts the four fires and halts with BudgetExhausted.
+#[test]
+fn a_fan_out_of_delayed_timers_is_not_halted_however_time_is_split() {
+    let machine = machine(
+        r#" initial="a""#,
+        r#"<state id="a"><onentry><send event="tick" delay="1000ms"/></onentry>
+           <transition event="tick"><send event="x" delay="1000ms"/><send event="x" delay="1000ms"/>
+             <send event="x" delay="1000ms"/><send event="x" delay="1000ms"/></transition>
+           <transition event="x"><log label="x"/></transition></state>"#,
+    );
+    let mut options = Options::new("s-1");
+    options.round_budget = budget(3);
+    let started = machine.start(options).unwrap();
+    let long = started.state.advance(2_000).unwrap();
+    assert!(
+        !long
+            .effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::BudgetExhausted { .. })),
+        "{:#?}",
+        long.effects
+    );
+    assert_eq!(labels(&long.effects).len(), 4);
+    let first = started.state.advance(1_000).unwrap();
+    let second = first.state.advance(1_000).unwrap();
+    let mut effects = first.effects;
+    effects.extend(second.effects);
+    assert_eq!(effects, long.effects);
+}
