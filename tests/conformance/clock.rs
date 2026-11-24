@@ -3,10 +3,11 @@
 //! sleeps.
 //!
 //! The constants are the reference's, read in statifier-ex at the vendored
-//! tag (`@settle_window_ms` and `@configuration_deadline_ms` in
-//! `lib/mix/statifier/corpus/host_case.ex`). The drive that steps a case
-//! through them arrives with the runner; until then the apparatus tests
-//! hold them to their numbers.
+//! tag (`@default_settle_window_ms` and `@default_configuration_deadline_ms`
+//! in `lib/statifier/testing/case.ex`, the harness a scion case runs
+//! through, and `@settle_window_ms` and `@configuration_deadline_ms` in
+//! `lib/mix/statifier/corpus/host_case.ex`). The drive in `runner.rs` steps
+//! every case through them.
 
 use statifier::{Error, State};
 
@@ -21,6 +22,7 @@ pub const CONFIGURATION_DEADLINE_MS: u64 = 4_000;
 /// clock's time fires, earliest first; a state with no timer pending is
 /// answered as it is.
 pub fn settle(state: &State) -> Result<State, Error> {
+    // As the reference's settle_short_timers_until/2 returns at once with no timer pending.
     if state.next_due_ms().is_none() {
         return Ok(state.clone());
     }

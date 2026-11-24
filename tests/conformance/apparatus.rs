@@ -300,6 +300,65 @@ fn a_key_the_schema_does_not_name_inside_a_host_object_is_refused() {
     );
 }
 
+// Sabotage: make corpus::matches answer false; the assert on the refusal of
+// a host object on a scion case fails (Corpus::load succeeds).
+#[test]
+fn a_host_object_on_a_scion_case_is_refused() {
+    let message = load_error_after("arm-host", "statifier/corpus/scion.json", |file| {
+        file["cases"][0]["host"] = json!({"send_types": ["x-a"]});
+    });
+    assert_eq!(
+        message,
+        "case \"scion/actionSend/send1\" carries the key host, which schema/case.json forbids on its suite"
+    );
+}
+
+// Sabotage: stop following a then schema into array items in
+// corpus::forbidden; the assert on the refusal of a scion step's
+// expect_position fails.
+#[test]
+fn an_expect_position_on_a_scion_step_is_refused() {
+    let message = load_error_after("arm-position", "statifier/corpus/scion.json", |file| {
+        file["cases"][0]["steps"][0]["expect_position"] =
+            file["cases"][0]["initial_configuration"].clone();
+    });
+    assert!(
+        message.contains(
+            "case \"scion/actionSend/send1\" carries the key steps[0].expect_position, which schema/case.json forbids on its suite"
+        ),
+        "{message}"
+    );
+}
+
+// Sabotage: drop the closed-object test in corpus::forbidden; the assert on
+// the refusal of a w3c host key other than event_io_processors fails.
+#[test]
+fn a_w3c_host_key_other_than_its_processors_is_refused() {
+    let message = load_error_after("arm-w3c-host", "statifier/corpus/w3c.json", |file| {
+        file["cases"][0]["host"] = json!({"event_io_processors": [], "send_types": ["x-a"]});
+    });
+    assert!(
+        message.ends_with(
+            "carries the key host.send_types, which schema/case.json forbids on its suite"
+        ),
+        "{message}"
+    );
+}
+
+// Sabotage: drop the not-required test in corpus::forbidden; the assert on
+// the refusal of an upstream on a statifier case fails.
+#[test]
+fn an_upstream_on_a_statifier_case_is_refused() {
+    let message = load_error_after("arm-upstream", "statifier/corpus/statifier.json", |file| {
+        file["cases"][0]["upstream"] =
+            json!({"document": "x.scxml", "license": "MIT", "notice": "LICENSES/x.txt"});
+    });
+    assert!(
+        message.ends_with("carries the key upstream, which schema/case.json forbids on its suite"),
+        "{message}"
+    );
+}
+
 // Sabotage: treat every object the schema describes as closed in
 // corpus::unknown (refuse when additionalProperties is absent); the first
 // assert_eq fails (the open object's extra key is refused).
@@ -422,17 +481,29 @@ fn passing_abm() -> Results {
 // Sabotage: append a blank line to conformance/registry.json; the assert on
 // its problems fails (the encoding check names it).
 #[test]
-fn the_shipped_registry_passes_and_makes_no_claim() {
+fn the_shipped_registry_passes_and_claims_the_scion_suite_alone() {
     let corpus = corpus();
     let bytes = std::fs::read(root().join("registry.json")).unwrap();
     assert_eq!(
         registry::check(&bytes, &corpus, &runner::run(&corpus, runner::drive)),
         Vec::<String>::new()
     );
-    let value: Value = serde_json::from_slice(&bytes).unwrap();
+    let parsed = registry::parse(&bytes).unwrap();
+    assert_eq!(parsed.claims, ["scion"]);
+    assert!(parsed.entries.iter().all(|entry| entry.suite == "scion"));
+    assert!(parsed.entries.len() >= 60, "{}", parsed.entries.len());
+}
+
+// Rule 3: a registry with no entry has nothing to verify.
+// Sabotage: drop the empty-entries test in registry::check; the assert_eq on
+// rule 3 fails (the empty registry passes).
+#[test]
+fn refuses_a_registry_with_no_entry() {
+    let corpus = corpus();
+    let bytes = encoded(&corpus, Vec::new(), None, HASH);
     assert_eq!(
-        value,
-        json!({"implementation": "statifier-rs", "corpus_hash": HASH, "claims": [], "entries": []})
+        registry_problems(&bytes, &passing_abm()),
+        ["rule 3: the registry has no entry to verify"]
     );
 }
 
@@ -673,7 +744,7 @@ fn ratchet_into(
 // Sabotage: write serde_json::to_string_pretty in place of registry::encode
 // in ratchet::write; the assert_eq on the written bytes fails.
 #[test]
-fn a_run_that_passes_nothing_writes_the_same_empty_registry() {
+fn a_run_that_passes_nothing_new_writes_the_same_registry() {
     let corpus = corpus();
     let (outcome, bytes) = ratchet_into("ratchet-none", &runner::run(&corpus, runner::drive), None);
     assert_eq!(outcome, Ok(()));
@@ -729,7 +800,7 @@ fn refuses_a_run_that_is_not_of_the_whole_corpus() {
     let corpus = corpus();
     let mut partial = run_passing(&corpus, &[A]);
     partial.outcomes.truncate(3);
-    let (outcome, _) = ratchet_into("ratchet-partial", &partial, None);
+    let (outcome, _) = ratchet_into("ratchet-partial", &partial, Some(Vec::new()));
     assert_eq!(
         outcome,
         Err(vec![format!(
@@ -762,7 +833,7 @@ fn refuses_a_recorded_entry_under_another_suite_or_absent_from_the_corpus() {
 // assert_eq on the refusal of a run of nothing fails.
 #[test]
 fn refuses_a_run_of_nothing() {
-    let (outcome, _) = ratchet_into("ratchet-nothing", &Results::default(), None);
+    let (outcome, _) = ratchet_into("ratchet-nothing", &Results::default(), Some(Vec::new()));
     assert_eq!(
         outcome,
         Err(vec![

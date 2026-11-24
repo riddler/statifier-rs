@@ -89,6 +89,19 @@ pub fn claim_of(item: &Value) -> Option<String> {
 /// not name, at an object whose `additionalProperties` is `false`, is
 /// refused rather than half-read, at any depth, so a corpus that grows a key
 /// is noticed here the day it is vendored.
+///
+/// The schema's `allOf` arms are walked too: each arm's `if` is read as the
+/// schema writes it (every member it names under `properties` present with
+/// the value its `const` gives), and for a case it matches, its `then` is
+/// walked the same way, where a key whose schema is `false` is forbidden at
+/// any depth, an object closed by `additionalProperties: false` takes only
+/// the keys it names, and a `not` of a `required` list forbids the keys it
+/// lists all being present. That refuses what the arms forbid per suite: an
+/// `expect_position` on a scion or w3c step, a `host` on a scion case or one
+/// holding any key but `event_io_processors` on a w3c case, and an
+/// `upstream` on a statifier case. The other constraints the arms state (a
+/// pattern, a `const`, a `required` key) are values, not keys, and are left
+/// to the corpus check's hash.
 #[derive(Debug)]
 pub struct CaseShape {
     schema: Value,
@@ -108,12 +121,93 @@ impl CaseShape {
             .map_or_else(|| "null".to_owned(), Value::to_string);
         let mut paths = Vec::new();
         unknown(item, Some(&self.schema), "", &mut paths);
-        paths
+        let mut problems: Vec<String> = paths
             .into_iter()
             .map(|path| {
                 format!("case {id} carries the key {path}, which schema/case.json does not name")
             })
-            .collect()
+            .collect();
+        let arms = self.schema.get("allOf").and_then(Value::as_array);
+        for arm in arms.into_iter().flatten() {
+            if !matches(item, arm.get("if")) {
+                continue;
+            }
+            let mut forbidden_paths = Vec::new();
+            forbidden(item, arm.get("then"), "", &mut forbidden_paths);
+            problems.extend(forbidden_paths.into_iter().map(|path| {
+                format!(
+                    "case {id} carries the key {path}, which schema/case.json forbids on its suite"
+                )
+            }));
+        }
+        problems
+    }
+}
+
+/// Whether `item` meets an arm's `if`: every member its `properties` names
+/// whose schema gives a `const` is present with that value. An arm with no
+/// `if` meets nothing.
+fn matches(item: &Value, condition: Option<&Value>) -> bool {
+    let Some(properties) = condition
+        .and_then(|condition| condition.get("properties"))
+        .and_then(Value::as_object)
+    else {
+        return false;
+    };
+    properties
+        .iter()
+        .all(|(key, schema)| match schema.get("const") {
+            Some(wanted) => item.get(key) == Some(wanted),
+            None => true,
+        })
+}
+
+/// The keys of `value` that `schema` (an arm's `then`) forbids, by path.
+fn forbidden(value: &Value, schema: Option<&Value>, path: &str, found: &mut Vec<String>) {
+    let Some(schema) = schema else {
+        return;
+    };
+    let at = |key: &str| {
+        if path.is_empty() {
+            key.to_owned()
+        } else {
+            format!("{path}.{key}")
+        }
+    };
+    match value {
+        Value::Object(object) => {
+            let properties = schema.get("properties").and_then(Value::as_object);
+            let closed = schema.get("additionalProperties") == Some(&Value::Bool(false));
+            for (key, member) in object {
+                match properties.and_then(|named| named.get(key)) {
+                    Some(Value::Bool(false)) => found.push(at(key)),
+                    Some(named) => forbidden(member, Some(named), &at(key), found),
+                    None if closed => found.push(at(key)),
+                    None => {}
+                }
+            }
+            let required = schema
+                .get("not")
+                .and_then(|not| not.get("required"))
+                .and_then(Value::as_array);
+            if let Some(keys) = required {
+                let names: Vec<&str> = keys.iter().filter_map(Value::as_str).collect();
+                if !names.is_empty() && names.iter().all(|key| object.contains_key(*key)) {
+                    found.extend(names.iter().map(|key| at(key)));
+                }
+            }
+        }
+        Value::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                forbidden(
+                    item,
+                    schema.get("items"),
+                    &format!("{path}[{index}]"),
+                    found,
+                );
+            }
+        }
+        _ => {}
     }
 }
 
