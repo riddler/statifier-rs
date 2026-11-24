@@ -61,6 +61,7 @@ packages `src/` and the top-level documents only.
 ```bash
 mise run gate:corpus      # the four hashes agree (a gate stage)
 mise run gate:registry    # the registry check (a gate stage)
+mise run gate:position    # the position round trip (a gate stage)
 mise run ratchet          # record in registry.json the cases a run made now passes
 STATIFIER_CORPUS_TAG=vX.Y.Z STATIFIER_CORPUS_CLONE=../statifier-ex \
   mise run corpus:refresh # move the copy to a tag
@@ -124,6 +125,22 @@ ratchet would not have written. It also refuses a registry with no entry
 (rule 3: nothing to verify), as the copy's `schema/registry.json` refuses
 that file; before its first claim this registry had none, and the check
 passed it as the registry that makes no claim.
+
+**Position round trip.** `mise run gate:position` drives every scion case
+as the run does and, after the start and after every step, exports the
+chart's position, writes it to JSON text and reads it back (the stage
+runs with every feature, `serde` among them), compiles the source again,
+imports the position into the new machine and drives the remaining steps
+on it. The imported drive must agree with the unbroken one at the point
+and after every later step: the same export, the same configuration and
+active leaf states, and the same answer on whether the chart has
+stopped. A point a position cannot carry is counted with its reason and
+named, never skipped: the export's two refusals, a pending timer, a
+budget halt, or a datamodel value JSON text cannot hold. A pending timer
+and a non-empty internal queue are the reasons the stage expects; it
+fails on any other, on any disagreement, and when no point agrees. It
+shows the crate agreeing with itself, not its positions agreeing with
+the reference's.
 
 **Refresh.** Moving the copy to another tag is a change of its own, reviewed
 like code. `mise run corpus:refresh` reads the tag named in

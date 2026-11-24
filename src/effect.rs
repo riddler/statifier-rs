@@ -7,6 +7,10 @@
 //! the reference's effect vocabulary (`Statifier.Effect` in statifier-ex).
 //! Every effect carries the three counters as they stood when it was made:
 //! the macrostep, the microstep within it and the round.
+//!
+//! With the `serde` feature an effect serializes as a map whose `kind` is
+//! the variant in snake case, beside its fields in camel case; an optional
+//! value that is `None` is left out, so a present `null` stays a value.
 
 use crate::Value;
 use predicator_rs::Map;

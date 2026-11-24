@@ -13,8 +13,17 @@
 //! runtime, thread, clock or I/O of its own: a send of a type the host
 //! registered is answered as an effect for the host to deliver.
 //!
-//! No function panics on a document a host passes: every refusal is a
-//! value, and nothing is configured globally.
+//! [`State::export_position`] writes a chart's position in the string-id
+//! vocabulary, and [`Machine::import_position`] reads one back onto the same
+//! chart or another that holds every state it names.
+//!
+//! No function panics on a document or a position a host passes: every
+//! refusal is a value, and nothing is configured globally.
+//!
+//! The `serde` feature, off by default, implements `Serialize` and
+//! `Deserialize` for a [`Position`], an [`Effect`] and a [`Done`], with the
+//! types they reach, and turns on the predicator crate's own for a
+//! [`Value`].
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
@@ -28,6 +37,8 @@ mod interpreter;
 mod lowering;
 mod machine;
 mod refusal;
+#[cfg(feature = "serde")]
+mod serde_support;
 mod validator;
 mod xml;
 
@@ -39,7 +50,10 @@ mod testing;
 #[doc = include_str!("../README.md")]
 struct ReadmeExamples;
 
-pub use driver::{Done, Error, Moved, Options, RoundBudget, State};
+pub use driver::{
+    ActiveInvocation, Done, Error, ExportError, ImportError, Moved, Options, Position, RoundBudget,
+    State, Status,
+};
 pub use effect::{BlockOwner, Effect, PathSegment};
 pub use machine::Machine;
 /// The value type of a chart's datamodel: the predicator crate's own

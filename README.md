@@ -49,10 +49,53 @@ That type is part of this crate's public API, so a release of this crate
 that moves to a new minor version of predicator-rs is a new minor version
 of this crate too.
 
+A chart's position moves between machines in the reference's string-id
+vocabulary: `State::export_position` answers a `Position` (every state
+named by the id the document wrote, the datamodel, the counters, the
+running flag and status, the trace flag and the round budget), and
+`Machine::import_position` reads one back into a state, onto the same
+chart or another that holds every state it names. A position carries the
+interpreter's state only: the virtual clock, a pending timer and a queued
+external event are the driver's, so an imported state starts with none,
+and the host schedules what it still expects on its own clock. The export
+refuses a state whose internal queue holds an event or that holds a
+state with no id; the import refuses, among others, every state id the
+chart does not hold, named at once.
+
+```rust
+use statifier::{Options, Value};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let source = r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" initial="a">
+                      <state id="a"><transition event="e.go" target="b"/></state>
+                      <state id="b"><transition event="e.go" target="c"/></state>
+                      <final id="c"/>
+                    </scxml>"#;
+    let machine = statifier::compile(source).map_err(|refusals| format!("{refusals:?}"))?;
+    let moved = machine.start(Options::new("s-1"))?.state.step("e.go", Value::Undefined)?;
+    let position = moved.state.export_position()?;
+
+    let again = statifier::compile(source).map_err(|refusals| format!("{refusals:?}"))?;
+    let resumed = again.import_position(&position)?;
+    assert_eq!(resumed.configuration(), ["b"]);
+    Ok(())
+}
+```
+
+The optional `serde` feature, off by default, implements `Serialize` and
+`Deserialize` for a position, an effect and a stopped chart's `Done`, and
+turns on predicator-rs's own for a value. The implementations are written
+by hand, so the feature adds the `serde` crate alone. A position's JSON form has the
+keys of the TypeScript sibling's, in camel case, each datamodel root
+written as predicator's tagged text of its value, so a position one
+sibling writes reads in the other. An effect is a map whose `kind` is the
+variant in snake case beside its fields in camel case.
+
 The conformance corpus this crate is checked against is vendored under
 `conformance/`, whose README says what is copied and from where. The
 registry, `conformance/registry.json`, names the corpus cases this crate
-passes.
+passes, and a gate stage runs the position round trip over every scion
+step.
 
 ## Differences from the reference
 
@@ -161,6 +204,29 @@ made a synchronous value step:
 - `CompileReason::ExpressionCompileError` does not name the expression's
   owner, which the reference's refusal does; the refusal's span locates
   the expression.
+
+It differs in these parts of a position, the reference's
+`Statifier.Position.export/1` and `import/2`:
+
+- An export's `identity` is null: this crate computes no chart identity.
+  The import reads no identity, as the reference's reads none, so a
+  position another sibling wrote keeps the one it carried.
+- The import refuses a position whose datamodel `_sessionid` is not a
+  string, since the state it answers runs as that session; the reference
+  takes the session from the process it resumes in.
+- The import refuses a recorded history value whose key is not a
+  `<history>`, or that holds a history or a state outside the history's
+  parent, and two live invocations naming one `<invoke>`; the reference
+  imports either, and entering such a history need never finish.
+- The registered send types of an imported state are the entries of its
+  datamodel's `_ioprocessors` other than the SCXML Event I/O Processor's,
+  as `Machine::start` writes them; the reference's driver stamps them
+  again from its own options.
+- With the `serde` feature, a JSON position missing a key or holding a
+  value of the wrong shape is refused by the deserializer, naming the
+  first it meets; the reference names every missing key at once. A JSON
+  counter above the 64-bit signed range is refused there too, since every
+  value is read through the predicator crate's reader.
 
 It differs in this part of its conformance check, which no user of the
 crate sees:

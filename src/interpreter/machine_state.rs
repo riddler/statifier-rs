@@ -22,7 +22,7 @@ use crate::datamodel::system_variables::{self, EventFields, EventType};
 use crate::effect::{BlockOwner, Effect};
 use crate::machine::{Chart, Machine};
 use predicator_rs::{Map, Value};
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 /// The round budget when the host sets none, the reference's
 /// (`max_macrostep_rounds` in `Statifier.MachineState`).
@@ -157,6 +157,16 @@ pub(crate) struct MachineState {
     pub(crate) entered_states: BTreeSet<usize>,
     /// The send and timer counters.
     pub(crate) sends: Sends,
+    /// The states whose `<invoke>` elements have yet to start. Invoke has
+    /// not arrived, so only an imported position fills it, and it is
+    /// carried to the next export unread.
+    pub(crate) states_to_invoke: BTreeSet<usize>,
+    /// The live invocations, by the index of their state and of the
+    /// `<invoke>` among its own, to the invoke id. Carried as
+    /// `states_to_invoke` is.
+    pub(crate) active_invocations: BTreeMap<(usize, u64), String>,
+    /// The last invoke id's number. Carried as `states_to_invoke` is.
+    pub(crate) invoke_counter: u64,
     /// The send types the host registered a processor for.
     pub(crate) send_types: BTreeSet<String>,
     /// The routes the driver declares reachable.
@@ -193,6 +203,9 @@ impl MachineState {
             internal_queue: VecDeque::new(),
             entered_states: BTreeSet::new(),
             sends: Sends::default(),
+            states_to_invoke: BTreeSet::new(),
+            active_invocations: BTreeMap::new(),
+            invoke_counter: 0,
             send_types: options.send_types,
             routes: options.routes,
             last_selection: None,

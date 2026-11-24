@@ -85,6 +85,7 @@ version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "532d189c713092d6199d6993793207d8cabaa28ba195268e5217db1702f56c92"
 dependencies = [
+ "serde",
  "unicode-segmentation",
 ]
 
@@ -164,6 +165,7 @@ name = "statifier"
 version = "0.0.0"
 dependencies = [
  "predicator-rs",
+ "serde",
  "serde_json",
  "sha2",
 ]

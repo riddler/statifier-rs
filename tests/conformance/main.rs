@@ -11,10 +11,11 @@
 //! the vendoring sequence). `conformance/README.md` says what is copied, from
 //! where, and what is this repository's own.
 //!
-//! Four tests at this file's top level are tasks, each run on its own by a
+//! Five tests at this file's top level are tasks, each run on its own by a
 //! `mise.toml` task so that what it prints is shown: `corpus_check`
-//! (`mise run gate:corpus`) and `registry_check` (`mise run gate:registry`)
-//! are stages of the full gate; `ratchet` (`mise run ratchet`), the one
+//! (`mise run gate:corpus`), `registry_check` (`mise run gate:registry`)
+//! and `position_check` (`mise run gate:position`) are stages of the full
+//! gate; `ratchet` (`mise run ratchet`), the one
 //! writer of `conformance/registry.json`, and `refresh`
 //! (`mise run corpus:refresh`) write tracked files, so the suite never runs
 //! them. The other tests here are the conformance run itself; the tests of
@@ -23,6 +24,7 @@
 mod checks;
 mod clock;
 mod corpus;
+mod position;
 mod ratchet;
 mod refresh;
 mod registry;
@@ -112,6 +114,46 @@ fn registry_check() {
     for line in runner::unclaimed_lines(&corpus, &entries, &reference_registry().entries) {
         println!("{line}");
     }
+}
+
+// The position round-trip stage, a stage of the full gate: every scion
+// case driven as the run drives it, its position exported after the start
+// and after every step, imported into a fresh machine and driven on, and
+// compared at every later step (`position.rs`). It prints the counts and
+// names every point not carried.
+// Sabotage: with the import starting `entered_states` empty, the late
+// binding cases disagree and this test fails naming them.
+#[test]
+fn position_check() {
+    let corpus = corpus();
+    let report = position::run(corpus.cases_of("scion"), position::export).unwrap();
+    for line in report.lines() {
+        println!("{line}");
+    }
+    let failures = report.failures();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+// The stage catches a lost field the configuration never shows: an export
+// that loses the macrostep counter disagrees at every point it carries.
+// Sabotage: with `disagreement` comparing only whether each export was
+// refused, the planted loss agrees and this goes red.
+#[test]
+fn the_position_stage_fails_an_export_that_loses_a_field() {
+    fn lossy(state: &statifier::State) -> Result<statifier::Position, statifier::ExportError> {
+        let mut position = state.export_position()?;
+        position.macrostep = 0;
+        Ok(position)
+    }
+    let corpus = corpus();
+    let report = position::run(corpus.cases_of("scion"), lossy).unwrap();
+    assert!(!report.disagreements().is_empty());
+    assert!(
+        report
+            .failures()
+            .iter()
+            .any(|line| line.contains("disagrees"))
+    );
 }
 
 // The one writer of conformance/registry.json: it runs the whole corpus now
