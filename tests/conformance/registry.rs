@@ -5,12 +5,12 @@
 //! (the ratchet), and the checks a sibling's registry check runs
 //! ([`check`]).
 //!
-//! Before its first entry the registry carries the pin, no claims and no
-//! entries. The copy's `schema/registry.json` refuses that file (an empty
-//! registry is a defect, not a claim); here it passes the check as the
-//! registry that makes no claim, which the gate stage says rather than
-//! reporting a pass of anything, and it stays this registry's shape until a
-//! run passes a case.
+//! Before its first entry the registry carried the pin, no claims and no
+//! entries, and the check passed it as the registry that makes no claim.
+//! Since the first claim it refuses a registry with no entry, as rule 3 of
+//! `RATCHET.md` asks of a sibling's check ("no entries to verify") and as
+//! the copy's `schema/registry.json` refuses the file: the ratchet never
+//! drops an entry, so an empty registry can only be one written by hand.
 
 use crate::corpus::{Corpus, IMPLEMENTATION, claim_of};
 use crate::runner::{Outcome, Results};
@@ -170,7 +170,9 @@ pub fn claims_of(entries: &[Entry], cases: &BTreeMap<&str, &Value>) -> Vec<Strin
 /// of a run made now: the pin, rule 1, the claims, every entry passing today
 /// and something to check; and besides them the implementation name, the
 /// order, one entry per case and the encoding, so the file is the one the
-/// ratchet would write. One sentence per problem; empty when it passes.
+/// ratchet would write. Something to check is a corpus case to read, a case
+/// run and an entry to verify (rule 3). One sentence per problem; empty when
+/// it passes.
 pub fn check(bytes: &[u8], corpus: &Corpus, results: &Results) -> Vec<String> {
     let registry = match parse(bytes) {
         Ok(registry) => registry,
@@ -259,6 +261,9 @@ pub fn check(bytes: &[u8], corpus: &Corpus, results: &Results) -> Vec<String> {
     }
     if results.is_empty() {
         problems.push("rule 3: no case was run".to_owned());
+    }
+    if entries.is_empty() {
+        problems.push("rule 3: the registry has no entry to verify".to_owned());
     }
     problems
 }

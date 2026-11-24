@@ -79,7 +79,10 @@ fn corpus_check() {
 
 // The registry check, a stage of the full gate: every check the copy's
 // RATCHET.md puts over a sibling's registry, against a run of the whole
-// corpus made now. It prints, per suite, the cases not yet claimed.
+// corpus made now. It prints, per driven suite, how many cases pass, then
+// the gap list (every unclaimed case of a driven suite in the reference's
+// order, with the features it needs) and, per suite, the cases not yet
+// claimed.
 // Sabotage: with an entry for a case no run passes added to registry.json,
 // this test fails naming the entry.
 #[test]
@@ -87,7 +90,8 @@ fn registry_check() {
     let dir = root();
     let corpus = corpus();
     let bytes = std::fs::read(dir.join(REGISTRY_FILE)).unwrap();
-    let problems = registry::check(&bytes, &corpus, &runner::run(&corpus, runner::drive));
+    let results = runner::run(&corpus, runner::drive);
+    let problems = registry::check(&bytes, &corpus, &results);
     assert!(
         problems.is_empty(),
         "registry check failed:\n  {}",
@@ -98,6 +102,12 @@ fn registry_check() {
         println!("registry: no claim is made");
     } else {
         println!("registry: {} entries pass today", entries.len());
+    }
+    for line in runner::pass_lines(&corpus, &results) {
+        println!("{line}");
+    }
+    for line in runner::gap_lines(&corpus, &entries, &results) {
+        println!("{line}");
     }
     for line in runner::unclaimed_lines(&corpus, &entries, &reference_registry().entries) {
         println!("{line}");
@@ -190,20 +200,197 @@ fn every_case_is_answered_pass_or_fail_with_no_skip() {
     }
 }
 
-// Sabotage: make runner::drive answer Outcome::Pass; the assert_eq on the
-// one reason every case fails with fails (and the registry would then claim
-// cases no interpreter drives).
+// Sabotage: add "w3c" to runner::DRIVEN_SUITES; the assert_eq on the w3c
+// cases' one reason fails (and the ratchet would then claim w3c cases).
 #[test]
-fn the_drive_passes_nothing_while_no_interpreter_exists() {
+fn the_drive_runs_the_scion_suite_and_no_other() {
     let corpus = corpus();
-    let reasons: std::collections::BTreeSet<runner::Outcome> = runner::run(&corpus, runner::drive)
-        .outcomes
-        .into_iter()
-        .map(|(_, outcome)| outcome)
+    let results = runner::run(&corpus, runner::drive);
+    let not_driven = runner::Outcome::Fail(runner::NOT_DRIVEN.to_owned());
+    for suite in corpus::SUITES {
+        let outcomes: std::collections::BTreeSet<&runner::Outcome> = corpus
+            .cases_of(suite)
+            .iter()
+            .filter_map(corpus::id_of)
+            .filter_map(|id| results.get(id))
+            .collect();
+        if suite == "scion" {
+            assert!(!outcomes.contains(&not_driven), "{suite}");
+        } else {
+            assert_eq!(
+                outcomes.into_iter().collect::<Vec<_>>(),
+                [&not_driven],
+                "{suite}"
+            );
+        }
+    }
+}
+
+/// A scion case of `source` with the initial configuration and steps given.
+fn scion_case(source: &str, initial: &[&str], steps: &[(&str, &[&str])]) -> serde_json::Value {
+    let steps: Vec<serde_json::Value> = steps
+        .iter()
+        .map(|(name, configuration)| {
+            serde_json::json!({"event": {"name": name}, "configuration": configuration})
+        })
+        .collect();
+    serde_json::json!({
+        "id": "scion/x/y",
+        "suite": "scion",
+        "source": source,
+        "initial_configuration": initial,
+        "steps": steps,
+    })
+}
+
+const CHART: &str = r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" initial="p">
+  <parallel id="p">
+    <state id="a"><transition event="e.go" target="b"/></state>
+    <state id="c"/>
+  </parallel>
+  <state id="b"><transition event="e.end" target="f"/></state>
+  <final id="f"/>
+</scxml>"#;
+
+// The drive compares active leaf states, a stopped chart's as it stopped.
+// Sabotage: compare State::configuration in place of the leaf read in
+// runner::compare; the first assert_eq fails (the parallel is active too).
+#[test]
+fn the_drive_compares_the_active_leaves_through_to_a_stopped_chart() {
+    let case = scion_case(CHART, &["c", "a"], &[("e.go", &["b"]), ("e.end", &["f"])]);
+    assert_eq!(runner::drive(&case), runner::Outcome::Pass);
+}
+
+// Sabotage: make runner::compare answer Ok(()); every assert_eq below fails.
+#[test]
+fn the_drive_fails_a_case_whose_configuration_disagrees_naming_where() {
+    let wrong_start = scion_case(CHART, &["a"], &[]);
+    assert_eq!(
+        runner::drive(&wrong_start),
+        runner::Outcome::Fail(
+            "the initial configuration: expected active leaf states [\"a\"], got [\"a\", \"c\"]"
+                .to_owned()
+        )
+    );
+    let wrong_step = scion_case(CHART, &["a", "c"], &[("e.go", &["f"])]);
+    assert_eq!(
+        runner::drive(&wrong_step),
+        runner::Outcome::Fail(
+            "step 1 (event \"e.go\"): expected active leaf states [\"f\"], got [\"b\"]".to_owned()
+        )
+    );
+    let after_stop = scion_case(
+        CHART,
+        &["a", "c"],
+        &[("e.go", &["b"]), ("e.end", &["f"]), ("e.go", &["f"])],
+    );
+    assert_eq!(
+        runner::drive(&after_stop),
+        runner::Outcome::Fail("step 3 (event \"e.go\"): the chart has stopped".to_owned())
+    );
+    let broken = scion_case("<scxml", &[], &[]);
+    let runner::Outcome::Fail(reason) = runner::drive(&broken) else {
+        panic!("a source that does not compile passed");
+    };
+    assert!(
+        reason.starts_with("the source does not compile: "),
+        "{reason}"
+    );
+}
+
+// A delayed send within the settle window fires before the next event; one
+// due after the deadline never fires.
+// Sabotage: drop the clock::settle call in runner::drive_case; the
+// assert_eq fails at step 1 (the 50 ms timer has not fired).
+#[test]
+fn the_drive_settles_the_clock_before_each_event_and_waits_to_the_deadline() {
+    let source = r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" initial="a">
+  <state id="a">
+    <onentry><send event="e.tick" delay="50ms"/><send event="e.late" delay="9s"/></onentry>
+    <transition event="e.tick" target="b"/>
+  </state>
+  <state id="b">
+    <transition event="e.go" target="c"/>
+    <transition event="e.late" target="z"/>
+  </state>
+  <state id="c"/>
+  <state id="z"/>
+</scxml>"#;
+    let case = scion_case(source, &["a"], &[("e.go", &["c"])]);
+    assert_eq!(runner::drive(&case), runner::Outcome::Pass);
+    let held = scion_case(source, &["z"], &[]);
+    assert_eq!(
+        runner::drive(&held),
+        runner::Outcome::Fail(
+            "the initial configuration: expected active leaf states [\"z\"], got [\"b\"]"
+                .to_owned()
+        )
+    );
+}
+
+// Every state of every scion source carries an id, so the leaf read, which
+// leaves out a state with none, leaves out no active leaf of a scion case.
+// Sabotage: drop a state's id in a copy of a scion source; this scan names
+// it (checked by hand on a copy: the regex below matches the bare tag).
+#[test]
+fn every_scion_state_carries_an_id() {
+    let corpus = corpus();
+    for item in corpus.cases_of("scion") {
+        let source = item["source"].as_str().unwrap();
+        for tag in ["<state", "<parallel", "<final"] {
+            for (at, _) in source.match_indices(tag) {
+                let rest = &source[at + tag.len()..];
+                let opening = &rest[..rest.find('>').unwrap()];
+                assert!(
+                    rest.starts_with(|c: char| c.is_whitespace() || c == '>' || c == '/'),
+                    "{tag} prefix"
+                );
+                assert!(
+                    opening
+                        .split_whitespace()
+                        .any(|part| part.starts_with("id=")),
+                    "{} has a {tag} with no id",
+                    corpus::id_of(item).unwrap_or_default()
+                );
+            }
+        }
+    }
+}
+
+// Sabotage: list every scion case in runner::gap_lines, claimed or not; the
+// assert_eq on the lines fails (a claimed case appears).
+#[test]
+fn the_gap_list_names_each_unclaimed_scion_case_in_order_with_its_features() {
+    let corpus = corpus();
+    let results = runner::run(&corpus, |item| {
+        if corpus::id_of(item) == Some("scion/actionSend/send2") {
+            runner::Outcome::Fail("why".to_owned())
+        } else {
+            runner::Outcome::Pass
+        }
+    });
+    let claimed: Vec<registry::Entry> = corpus
+        .cases_of("scion")
+        .iter()
+        .filter_map(corpus::id_of)
+        .skip(2)
+        .map(|id| registry::Entry::new(id, "scion"))
         .collect();
     assert_eq!(
-        reasons.into_iter().collect::<Vec<_>>(),
-        vec![runner::Outcome::Fail(runner::NOT_DRIVEN.to_owned())]
+        runner::gap_lines(&corpus, &claimed, &results),
+        [
+            "conformance: gap: scion/actionSend/send1 (needs basic_states, compound_states, event_transitions, raise_elements): passes, not yet claimed",
+            "conformance: gap: scion/actionSend/send2 (needs basic_states, compound_states, event_transitions, onexit_actions, raise_elements): fails: why",
+        ]
+    );
+    let lines = runner::pass_lines(&corpus, &results);
+    assert_eq!(
+        lines,
+        [format!(
+            "conformance: scion: {} of {} cases pass (the first in the reference's order: scion/actionSend/send1)",
+            corpus.cases_of("scion").len() - 1,
+            corpus.cases_of("scion").len()
+        )]
     );
 }
 

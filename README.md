@@ -16,7 +16,9 @@ that refused the document, each with a reason, a message and a span.
 `Machine::start` starts the chart in execution, and the state it answers
 moves by `State::step` (an external event) and `State::advance` (the
 virtual clock); each call answers a new state and the effects it produced,
-and leaves the state it was given unchanged. The driver takes no runtime,
+and leaves the state it was given unchanged. `State::active_leaf_states`
+reads the active leaf states, the set a conformance case's expected
+configuration names. The driver takes no runtime,
 thread, clock or I/O of its own: a `<send>` of a type the host registered
 is answered as an effect for the host to deliver.
 
@@ -48,7 +50,9 @@ that moves to a new minor version of predicator-rs is a new minor version
 of this crate too.
 
 The conformance corpus this crate is checked against is vendored under
-`conformance/`, whose README says what is copied and from where.
+`conformance/`, whose README says what is copied and from where. The
+registry, `conformance/registry.json`, names the corpus cases this crate
+passes.
 
 ## Differences from the reference
 
@@ -154,9 +158,21 @@ made a synchronous value step:
 - `State::configuration` and `Done::configuration` leave out a state the
   document gave no id, as the reference leaves it out where it turns
   states into ids.
+- `State::active_leaf_states` on a stopped chart answers the leaves of the
+  configuration it stopped in; the reference's `active_leaf_states/1`
+  answers none there, and its conformance harness reads the configuration
+  the done effect carries instead.
 - `CompileReason::ExpressionCompileError` does not name the expression's
   owner, which the reference's refusal does; the refusal's span locates
   the expression.
+
+It differs in this part of its conformance check, which no user of the
+crate sees:
+
+- The registry check started on an empty registry, the pin with no claims
+  and no entries, and passed it as the registry that makes no claim, where
+  the corpus's `RATCHET.md` (rule 3) fails a check with no entries to
+  verify. From the first claim on, it refuses an empty registry.
 
 `compile` does not yet refuse a chart whose expressions call a function no
 evaluation can supply: statifier-ex refuses such a chart with the reason

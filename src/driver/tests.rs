@@ -683,3 +683,51 @@ fn a_fan_out_of_delayed_timers_is_not_halted_however_time_is_split() {
     effects.extend(second.effects);
     assert_eq!(effects, long.effects);
 }
+
+// Sabotage: with `leaf_ids` keeping every active state, the first
+// assert_eq goes red (the parallel and the compound state are answered).
+#[test]
+fn the_leaf_read_answers_the_active_atomic_states_sorted_unnamed_left_out() {
+    let started = start(
+        r#" initial="p""#,
+        r#"<parallel id="p"><state id="z"/><state id="s"><state id="m"/></state>
+             <state><state id="b"/></state></parallel>"#,
+    );
+    assert_eq!(started.state.active_leaf_states(), ["b", "m", "z"]);
+    assert_eq!(started.state.configuration(), ["b", "m", "p", "s", "z"]);
+}
+
+// Sabotage: with `active_leaf_states` reading the core's configuration on a
+// stopped chart, the second assert_eq goes red (it answers none).
+#[test]
+fn the_leaf_read_answers_a_stopped_chart_the_leaves_it_stopped_in() {
+    let started = start(
+        r#" initial="a""#,
+        r#"<state id="a"><transition event="e.go" target="f"/></state><final id="f"/>"#,
+    );
+    assert_eq!(started.state.active_leaf_states(), ["a"]);
+    let moved = started.state.step("e.go", Value::Undefined).unwrap();
+    assert_eq!(moved.state.active_leaf_states(), ["f"]);
+    assert!(moved.state.configuration().is_empty());
+    assert_eq!(
+        moved.state.done().map(|done| done.configuration.clone()),
+        Some(vec!["f".to_owned()])
+    );
+}
+
+// A nested final ends its parent's region, not the chart: the leaf read is
+// the live configuration's.
+// Sabotage: with `active_leaf_states` answering the stopped leaves always,
+// the first assert_eq goes red (they are empty while the chart runs).
+#[test]
+fn the_leaf_read_of_a_running_chart_holds_a_nested_final() {
+    let started = start(
+        r#" initial="s""#,
+        r#"<state id="s"><transition event="done.state.s" target="t"/>
+             <state id="a"><transition event="e.go" target="f"/></state><final id="f"/></state>
+           <state id="t"/>"#,
+    );
+    assert_eq!(started.state.active_leaf_states(), ["a"]);
+    let moved = started.state.step("e.go", Value::Undefined).unwrap();
+    assert_eq!(moved.state.active_leaf_states(), ["t"]);
+}

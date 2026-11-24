@@ -83,12 +83,21 @@ the copied bytes, or refresh the copy to a tag.
 **Run.** The conformance run is the rest of the `conformance` test target. It
 reads every case of every suite with no skip list, refuses a case carrying a
 key the copy's `schema/case.json` does not name (at every object the schema
-closes), hands every case to the drive, requires every case this registry
-claims to pass, and reports per suite how many cases are not yet claimed. The
-drive (`drive` in `tests/conformance/runner.rs`) is the one place the crate is
-plugged into the run. This crate has no interpreter yet, so today the drive
-answers every case with the reason that it is not driven, the run passes
-nothing, and every case is unclaimed.
+closes) or one its per-suite arms forbid, hands every case to the drive,
+requires every case this registry claims to pass, and reports per suite how
+many cases are not yet claimed. The drive (`drive` in
+`tests/conformance/runner.rs`) is the one place the crate is plugged into the
+run, through the crate's public surface alone. It drives the scion suite as
+the reference's harness drives a scion case: it compiles the source, starts
+the chart, and compares the active leaf states (`State::active_leaf_states`)
+with the case's initial configuration and, after each step's event, with
+that step's configuration, settling the virtual clock before each event and
+waiting up to the configuration deadline after it
+(`tests/conformance/clock.rs`). Every case of the other suites fails with
+the reason that it is not driven. The registry check prints, for the scion
+suite, how many cases pass and the gap list: every case the registry does
+not claim, in the reference's order, with the features it needs and whether
+it passes or why it fails.
 
 An excluded document is not in the corpus at all, so it is not a case and
 is counted nowhere; `exclusions.json` is copied for its reasons. A case in
@@ -108,10 +117,10 @@ passing, it writes the registry it found.
 check" in the copy's `RATCHET.md` - the pin, rule 1, the claims, every entry
 passing in a run made now, and something to check - and refuses entries out
 of order, a case entered twice, another implementation's name and a file the
-ratchet would not have written. Before the first entry the registry carries
-the pin, no claims and no entries, and the check says that no claim is made.
-The copy's `schema/registry.json` refuses that file, since an empty registry
-makes no claim; it stays this registry's shape until a run passes a case.
+ratchet would not have written. It also refuses a registry with no entry
+(rule 3: nothing to verify), as the copy's `schema/registry.json` refuses
+that file; before its first claim this registry had none, and the check
+passed it as the registry that makes no claim.
 
 **Refresh.** Moving the copy to another tag is a change of its own, reviewed
 like code. `mise run corpus:refresh` reads the tag named in

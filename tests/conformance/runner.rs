@@ -1,14 +1,20 @@
 //! The run: every case of every suite, each answered pass or fail, with no
 //! skip list and no third result.
 
+use crate::clock;
 use crate::corpus::{Corpus, id_of};
 use crate::registry::Entry;
 use serde_json::Value;
+use statifier::{Options, State};
 use std::collections::BTreeSet;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-/// The reason every case fails while nothing drives it.
-pub const NOT_DRIVEN: &str = "not driven: this crate has no interpreter yet";
+/// The suites the drive runs. Every case of another suite fails with
+/// [`NOT_DRIVEN`], so the ratchet can claim none of it.
+pub const DRIVEN_SUITES: [&str; 1] = ["scion"];
+
+/// The reason every case of a suite the drive does not run fails with.
+pub const NOT_DRIVEN: &str = "not driven: this runner drives the scion suite only";
 
 /// What a drive answers for one case, and what the run records for it.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -23,16 +29,120 @@ pub enum Outcome {
 /// is plugged into the run; the runner, the registry check and the ratchet
 /// all reach the crate through a drive and nothing else.
 ///
-/// This crate has no compiler, interpreter or driver yet, so [`drive`]
-/// answers every case with [`NOT_DRIVEN`] and the run passes nothing. The
-/// change that brings them replaces its body with the drive the copy's
-/// `RATCHET.md` describes under "What a case asserts": compile the case's
-/// source, start it and compare the active leaf states with
-/// `initial_configuration`, then send each step's event and compare with the
-/// step's `configuration` (and, for a case with a `host` object or a stated
-/// position, what `RATCHET.md` says the runner honours there).
-pub fn drive(_item: &Value) -> Outcome {
-    Outcome::Fail(NOT_DRIVEN.to_owned())
+/// The drive is the one the copy's `RATCHET.md` describes under "What a case
+/// asserts", made through the crate's public surface alone
+/// ([`statifier::compile`], [`statifier::Machine::start`],
+/// [`State::step`], [`State::advance`] through [`clock`], and
+/// [`State::active_leaf_states`]): compile the case's source, start it and
+/// compare the active leaf states with `initial_configuration`, then for
+/// each step settle the clock, send the step's event and compare with the
+/// step's `configuration`. Each comparison is made once the configuration
+/// deadline has passed or the expectation is reached ([`clock`]), as the
+/// reference's harness compares (`assert_configuration/3` and
+/// `assert_configuration_eventually/3` in `lib/statifier/testing/case.ex`
+/// at the vendored tag). A configuration is compared as a set of ids; a
+/// stopped chart is compared at the configuration it stopped in, as the
+/// reference's harness restores it from the done effect. Only the event's
+/// name is sent, as the reference's harness sends only the name.
+///
+/// The reference's harness also fails a case whose active leaf has no id
+/// (`assert_every_leaf_named/2`); the public read leaves such a state out,
+/// so it cannot be counted here, and every state of every scion source
+/// carries an id (the apparatus test
+/// `every_scion_state_carries_an_id` holds the copy to that).
+///
+/// It drives the suites in [`DRIVEN_SUITES`]; every other case fails with
+/// [`NOT_DRIVEN`]. A case that does not compile, that the driver refuses,
+/// or whose configuration disagrees fails with the reason.
+pub fn drive(item: &Value) -> Outcome {
+    let suite = item.get("suite").and_then(Value::as_str).unwrap_or("");
+    if !DRIVEN_SUITES.contains(&suite) {
+        return Outcome::Fail(NOT_DRIVEN.to_owned());
+    }
+    match drive_case(item) {
+        Ok(()) => Outcome::Pass,
+        Err(reason) => Outcome::Fail(reason),
+    }
+}
+
+/// The start and every step, compared in turn; the reason at the first
+/// that disagrees.
+fn drive_case(item: &Value) -> Result<(), String> {
+    let source = item
+        .get("source")
+        .and_then(Value::as_str)
+        .ok_or("the case has no source")?;
+    let machine = statifier::compile(source).map_err(|refusals| {
+        let messages: Vec<&str> = refusals.iter().map(|refusal| refusal.message()).collect();
+        format!("the source does not compile: {}", messages.join("; "))
+    })?;
+    let expected = configuration(item.get("initial_configuration"))?;
+    let started = machine
+        .start(Options::new(id_of(item).unwrap_or("")))
+        .map_err(|error| format!("the driver refused the start: {error}"))?;
+    let mut state = reach(&started.state, 0, &expected)?;
+    compare(&state, &expected, "the initial configuration")?;
+    let steps = item
+        .get("steps")
+        .and_then(Value::as_array)
+        .ok_or("the case has no steps")?;
+    for (index, step) in steps.iter().enumerate() {
+        let name = step
+            .get("event")
+            .and_then(|event| event.get("name"))
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("step {} has no event name", index + 1))?;
+        let expected = configuration(step.get("configuration"))?;
+        let settled =
+            clock::settle(&state).map_err(|error| format!("the settle window: {error}"))?;
+        let since = settled.now_ms();
+        let moved = settled
+            .step(name, statifier::Value::Undefined)
+            .map_err(|error| format!("step {} (event {name:?}): {error}", index + 1))?;
+        state = reach(&moved.state, since, &expected)?;
+        compare(
+            &state,
+            &expected,
+            &format!("step {} (event {name:?})", index + 1),
+        )?;
+    }
+    Ok(())
+}
+
+/// The state once `expected` is reached or the deadline after `since` has
+/// passed.
+fn reach(state: &State, since: u64, expected: &[String]) -> Result<State, String> {
+    clock::await_until(state, since, |current| {
+        current.active_leaf_states() == expected
+    })
+    .map_err(|error| format!("the configuration deadline: {error}"))
+}
+
+/// The expected configuration, sorted.
+fn configuration(value: Option<&Value>) -> Result<Vec<String>, String> {
+    let mut ids = value
+        .and_then(Value::as_array)
+        .and_then(|items| {
+            items
+                .iter()
+                .map(|item| item.as_str().map(str::to_owned))
+                .collect::<Option<Vec<_>>>()
+        })
+        .ok_or("a configuration is not a list of state ids")?;
+    ids.sort();
+    ids.dedup();
+    Ok(ids)
+}
+
+/// Nothing when the active leaf states are `expected`; else the reason.
+fn compare(state: &State, expected: &[String], at: &str) -> Result<(), String> {
+    let found = state.active_leaf_states();
+    if found == expected {
+        return Ok(());
+    }
+    Err(format!(
+        "{at}: expected active leaf states {expected:?}, got {found:?}"
+    ))
 }
 
 /// The results of one run, in corpus order.
@@ -97,6 +207,73 @@ fn outcome_of(item: &Value, with: &impl Fn(&Value) -> Outcome) -> Outcome {
                 .unwrap_or_else(|| "a value that is not a message".to_owned());
             Outcome::Fail(format!("panicked: {message}"))
         }
+    }
+}
+
+/// One line per driven suite ([`DRIVEN_SUITES`]): how many of its cases
+/// pass in `results`, and the first that does, in the reference's order.
+pub fn pass_lines(corpus: &Corpus, results: &Results) -> Vec<String> {
+    corpus
+        .suites
+        .iter()
+        .filter(|suite| DRIVEN_SUITES.contains(&suite.suite.as_str()))
+        .map(|suite| {
+            let passing: Vec<&str> = suite
+                .cases
+                .iter()
+                .filter_map(id_of)
+                .filter(|id| results.get(id) == Some(&Outcome::Pass))
+                .collect();
+            let first = passing
+                .first()
+                .map_or_else(|| "none".to_owned(), |id| (*id).to_owned());
+            format!(
+                "conformance: {}: {} of {} cases pass (the first in the reference's order: {first})",
+                suite.suite,
+                passing.len(),
+                suite.cases.len()
+            )
+        })
+        .collect()
+}
+
+/// The gap list: one line per case of a driven suite ([`DRIVEN_SUITES`])
+/// this crate's registry (`entries`) does not claim, in the reference's
+/// order (the manifest's suites, each suite's cases as its file lists
+/// them): the case, the features it needs (its `required_features`) and
+/// where it stands in `results`, passing or failing with why. A case that
+/// passes stays on the list until the ratchet claims it.
+pub fn gap_lines(corpus: &Corpus, entries: &[Entry], results: &Results) -> Vec<String> {
+    let ours: BTreeSet<&str> = entries.iter().map(|entry| entry.case_id.as_str()).collect();
+    corpus
+        .suites
+        .iter()
+        .filter(|suite| DRIVEN_SUITES.contains(&suite.suite.as_str()))
+        .flat_map(|suite| suite.cases.iter())
+        .filter_map(|item| id_of(item).map(|id| (id, item)))
+        .filter(|(id, _)| !ours.contains(id))
+        .map(|(id, item)| {
+            let standing = match results.get(id) {
+                Some(Outcome::Pass) => "passes, not yet claimed".to_owned(),
+                Some(Outcome::Fail(reason)) => format!("fails: {reason}"),
+                None => "not run".to_owned(),
+            };
+            format!("conformance: gap: {id} (needs {}): {standing}", needs(item))
+        })
+        .collect()
+}
+
+/// The features a case needs, as its `required_features` lists them.
+fn needs(item: &Value) -> String {
+    let features: Vec<&str> = item
+        .get("required_features")
+        .and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    if features.is_empty() {
+        "no feature".to_owned()
+    } else {
+        features.join(", ")
     }
 }
 
