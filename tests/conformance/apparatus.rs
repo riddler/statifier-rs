@@ -1219,3 +1219,42 @@ fn the_deadline_wait_ends_on_a_timer_rescheduled_at_once() {
     let waited = clock::await_until(&state, 0, |_| false).unwrap();
     assert_eq!(waited.next_due_ms(), None);
 }
+
+fn readme_text(total: &str, scion: &str) -> String {
+    format!(
+        "## Other\n\n## Conformance\n\nTag v1.\n\n| Claim | Cases passing |\n|---|---|\n| scion | {scion} |\n| w3c-mandatory | 2 |\n| Total | {total} |\n\n## License\n"
+    )
+}
+
+fn claim_counts() -> std::collections::BTreeMap<String, usize> {
+    [("scion".to_owned(), 3), ("w3c-mandatory".to_owned(), 2)].into()
+}
+
+// Sabotage: with `problems` comparing no count, the wrong row below passes
+// and this goes red.
+#[test]
+fn a_readme_count_that_disagrees_with_the_registry_fails_naming_the_claim() {
+    let counts = claim_counts();
+    assert!(crate::readme::problems(&readme_text("5", "3"), &counts, "v1").is_empty());
+    let problems = crate::readme::problems(&readme_text("5", "4"), &counts, "v1");
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert!(problems[0].contains("scion"), "{problems:?}");
+}
+
+// Sabotage: with the Total row unread, the wrong sum below passes and this
+// goes red.
+#[test]
+fn a_readme_total_that_is_not_the_sum_fails() {
+    let problems = crate::readme::problems(&readme_text("6", "3"), &claim_counts(), "v1");
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert!(problems[0].contains("Total"), "{problems:?}");
+}
+
+// Sabotage: with the tag check removed, the other tag below passes and
+// this goes red.
+#[test]
+fn a_readme_that_names_another_tag_fails() {
+    let problems = crate::readme::problems(&readme_text("5", "3"), &claim_counts(), "v2");
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert!(problems[0].contains("v2"), "{problems:?}");
+}

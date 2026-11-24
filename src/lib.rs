@@ -1,4 +1,6 @@
-//! An SCXML statechart interpreter core.
+//! An SCXML statechart interpreter core, a conformant sibling of the Elixir
+//! reference `statifier`, checked against the conformance corpus the
+//! reference publishes.
 //!
 //! [`compile`] reads an SCXML document into a [`Machine`]: an immutable
 //! value, cheap to clone and safe to share between threads, that holds every
@@ -11,19 +13,49 @@
 //! [`State::advance`] (the virtual clock) move, each answering the new
 //! state and the [`Effect`]s the call produced. The driver takes no
 //! runtime, thread, clock or I/O of its own: a send of a type the host
-//! registered is answered as an effect for the host to deliver.
+//! registered ([`Options::send_types`]) is answered as an effect for the
+//! host to deliver, and the crate never calls host code.
+//!
+//! ```
+//! use statifier::{Options, Value};
+//!
+//! let machine = statifier::compile(
+//!     r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" initial="a">
+//!          <state id="a"><transition event="e.go" target="b"/></state>
+//!          <final id="b"/>
+//!        </scxml>"#,
+//! )
+//! .map_err(|refusals| format!("{refusals:?}"))?;
+//! let started = machine.start(Options::new("s-1"))?;
+//! assert_eq!(started.state.configuration(), ["a"]);
+//!
+//! let moved = started.state.step("e.go", Value::Undefined)?;
+//! assert_eq!(moved.state.done().map(|done| done.configuration.clone()), Some(vec!["b".to_owned()]));
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
 //!
 //! [`State::export_position`] writes a chart's position in the string-id
 //! vocabulary, and [`Machine::import_position`] reads one back onto the same
-//! chart or another that holds every state it names.
+//! chart or another that holds every state it names. A position carries the
+//! interpreter's state only: the virtual clock, a pending timer and a queued
+//! external event are the host's to reschedule.
+//!
+//! # Refusals are values
 //!
 //! No function panics on a document or a position a host passes: every
-//! refusal is a value, and nothing is configured globally.
+//! refusal is a value ([`Refusal`], [`Error`], [`ExportError`],
+//! [`ImportError`]), every public enum is `#[non_exhaustive]`, and nothing
+//! is configured globally.
+//!
+//! # Features and compatibility
 //!
 //! The `serde` feature, off by default, implements `Serialize` and
 //! `Deserialize` for a [`Position`], an [`Effect`] and a [`Done`], with the
 //! types they reach, and turns on the predicator crate's own for a
-//! [`Value`].
+//! [`Value`]. The crate has one runtime dependency, the predicator crate,
+//! forbids `unsafe` code, needs `std`, and builds for
+//! `wasm32-unknown-unknown`. The README holds the full compatibility and
+//! conformance statements.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]

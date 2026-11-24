@@ -26,6 +26,7 @@ mod clock;
 mod corpus;
 mod position;
 mod ratchet;
+mod readme;
 mod refresh;
 mod registry;
 mod runner;
@@ -153,6 +154,26 @@ fn the_position_stage_fails_an_export_that_loses_a_field() {
             .failures()
             .iter()
             .any(|line| line.contains("disagrees"))
+    );
+}
+
+// The README check: the Conformance section's table of claims, the counts
+// under them and the tag it names agree with the shipped registry and the
+// provenance record, so the README cannot drift from either.
+// Sabotage: with one count in the README's table changed, this test fails
+// naming the claim.
+#[test]
+fn readme_conformance_matches_the_registry() {
+    let corpus = corpus();
+    let counts = readme::counts(&shipped_registry().entries, &corpus);
+    let readme = std::fs::read_to_string(root().join("..").join("README.md")).unwrap();
+    let provenance = corpus::read_json(&root(), corpus::PROVENANCE_FILE).unwrap();
+    let tag = provenance["tag"].as_str().unwrap();
+    let problems = readme::problems(&readme, &counts, tag);
+    assert!(
+        problems.is_empty(),
+        "README check failed:\n  {}",
+        problems.join("\n  ")
     );
 }
 
