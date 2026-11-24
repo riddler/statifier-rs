@@ -1,6 +1,6 @@
 ### 0.1.0 / 2026-11-24
 
-The first release of the engine: an SCXML statechart interpreter, a conformant sibling of the Elixir `statifier` package, driven as a value step (`compile`, `Machine::start`, `State::step`, `State::advance`) with every effect answered as plain data for the host to carry out. It needs Rust 1.85 or newer and has one runtime dependency, `predicator-rs` 0.1 (0.1.0 at this release), whose compiled conditions, values and scripts it runs. Two features, both off by default: `serde`, which adds `Serialize` and `Deserialize` for a position, an effect and a stopped chart's answer, and `basichttp`, which adds the `basichttp` module, the seam a host fills to carry a Basic HTTP send; the crate ships no HTTP client and no transport. The chart semantics are those of the reference at its `v2.16.0` conformance corpus, vendored under `conformance/`; `conformance/registry.json` claims 320 cases: 119 of `scion`, 36 of `statifier`, 152 of `w3c-mandatory` and 13 of `w3c-optional`, with no case skipped. The public surface is listed in `tests/public-items.txt`, which the full gate compares with the built documentation.
+The first release published by the release workflow, and the first to carry the Basic HTTP processor, `Machine::check_accepts` and `State::report_send_failed`: an SCXML statechart interpreter, a conformant sibling of the Elixir `statifier` package, driven as a value step (`compile`, `Machine::start`, `State::step`, `State::advance`) with every effect answered as plain data for the host to carry out. It needs Rust 1.85 or newer and has one unconditional runtime dependency, `predicator-rs` 0.1 (0.1.0 at this release), whose compiled conditions, values and scripts it runs. Two features, both off by default: `serde`, which adds `Serialize` and `Deserialize` for a position, an effect and a stopped chart's answer, and `basichttp`, which adds the `basichttp` module, the seam a host fills to carry a Basic HTTP send; the crate ships no HTTP client and no transport. The chart semantics are those of the reference at its `v2.16.0` conformance corpus, vendored under `conformance/`; `conformance/registry.json` claims 320 cases: 119 of `scion`, 36 of `statifier`, 152 of `w3c-mandatory` and 13 of `w3c-optional`, with no case skipped. The public surface is listed in `tests/public-items.txt`, which the full gate compares with the built documentation. The Added and Changed lists below record the work since the repository began, some of which 0.0.0 already carried.
 
 **Added**
 
@@ -51,6 +51,6 @@ The first release of the engine: an SCXML statechart interpreter, a conformant s
 - A state's exit takes it off the states to invoke and cancels its live invocations, so a position exported after the exit names neither.
 - A registered send type's `_ioprocessors` entry is the one the host supplies in `Options::ioprocessors`; a type with none still has an empty map.
 
-### 0.0.0
+### 0.0.0 / 2026-11-24
 
-The crate name was held at version `0.0.0`, which contains no library code.
+Published to claim the crate name, from an early snapshot of the interpreter on the default branch: it has no Basic HTTP processor, no `basichttp` feature, no `Machine::check_accepts` and no `State::report_send_failed`.
