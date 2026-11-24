@@ -135,6 +135,9 @@ pub(crate) fn deliver_internal(state: &MachineState, event: Event) -> Result<Ste
 
 /// `mainEventLoop`'s cancel path: `running` cleared, then `exitInterpreter`.
 /// A chart that has stopped refuses.
+// No driver call cancels a chart, or steps one round or one macrostep
+// alone, yet; the tests reach the port through it.
+#[cfg(test)]
 pub(crate) fn cancel(state: &MachineState) -> Result<Stepped, NotRunning> {
     if !state.running {
         return Err(NotRunning);
@@ -151,6 +154,9 @@ pub(crate) fn cancel(state: &MachineState) -> Result<Stepped, NotRunning> {
 /// internal event is taken, set as `_event`, and the transitions it enables
 /// taken. A round that finds neither, or a chart no longer running, is
 /// [`Round::Quiescent`].
+// No driver call cancels a chart, or steps one round or one macrostep
+// alone, yet; the tests reach the port through it.
+#[cfg(test)]
 pub(crate) fn microstep(state: &MachineState) -> (Stepped, Round) {
     let mut state = state.clone();
     let mut effects = Vec::new();
@@ -160,6 +166,9 @@ pub(crate) fn microstep(state: &MachineState) -> (Stepped, Round) {
 
 /// The rounds folded until the macrostep is stable, the chart stops or the
 /// budget is spent; a spent budget answers [`Effect::BudgetExhausted`] last.
+// No driver call cancels a chart, or steps one round or one macrostep
+// alone, yet; the tests reach the port through it.
+#[cfg(test)]
 pub(crate) fn macrostep(state: &MachineState) -> Stepped {
     let mut state = state.clone();
     let mut effects = Vec::new();
@@ -201,14 +210,21 @@ fn fold(state: &mut MachineState, effects: &mut Vec<Effect>) -> Folded {
 // spent its budget, nothing otherwise.
 fn terminal(state: &MachineState, folded: Folded, effects: &mut Vec<Effect>) {
     if let Folded::Exhausted(budget) = folded {
-        effects.push(Effect::BudgetExhausted {
-            configuration: state.configuration.iter().copied().collect(),
-            budget,
-            pending_internal_events: state.pending_internal_events(),
-            macrostep: state.counters.macrostep,
-            microstep: state.counters.microstep,
-            round: state.counters.round,
-        });
+        effects.push(budget_exhausted(state, budget));
+    }
+}
+
+/// [`Effect::BudgetExhausted`] for the position as it stands and a budget
+/// of `budget` rounds: the driver answers the same effect when a call
+/// spends its own count of the events it takes.
+pub(crate) fn budget_exhausted(state: &MachineState, budget: u64) -> Effect {
+    Effect::BudgetExhausted {
+        configuration: state.configuration.iter().copied().collect(),
+        budget,
+        pending_internal_events: state.pending_internal_events(),
+        macrostep: state.counters.macrostep,
+        microstep: state.counters.microstep,
+        round: state.counters.round,
     }
 }
 

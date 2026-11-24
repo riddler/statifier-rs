@@ -12,8 +12,33 @@ chart: `statifier::compile` takes an SCXML document's source and answers an
 immutable machine (every state interned, every expression compiled through
 the [predicator-rs](https://crates.io/crates/predicator-rs) crate, the
 validator's warnings carried on it), or the refusals of the first stage
-that refused the document, each with a reason, a message and a span. It
-does not execute a machine yet.
+that refused the document, each with a reason, a message and a span.
+`Machine::start` starts the chart in execution, and the state it answers
+moves by `State::step` (an external event) and `State::advance` (the
+virtual clock); each call answers a new state and the effects it produced,
+and leaves the state it was given unchanged. The driver takes no runtime,
+thread, clock or I/O of its own: a `<send>` of a type the host registered
+is answered as an effect for the host to deliver.
+
+```rust
+use statifier::Options;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let machine = statifier::compile(
+        r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" initial="a">
+             <state id="a"><onentry><send event="e.go" delay="1s"/></onentry>
+               <transition event="e.go" target="b"/></state>
+             <final id="b"/>
+           </scxml>"#,
+    )
+    .map_err(|refusals| format!("{refusals:?}"))?;
+    let started = machine.start(Options::new("s-1"))?;
+    assert_eq!(started.state.configuration(), ["a"]);
+    let moved = started.state.advance(1_000)?;
+    assert_eq!(moved.state.done().map(|done| done.configuration.clone()), Some(vec!["b".to_owned()]));
+    Ok(())
+}
+```
 
 A chart's datamodel holds predicator values: `statifier::Value` is the
 predicator-rs crate's `Value`, re-exported rather than mirrored, so a
@@ -95,6 +120,34 @@ reaches:
   counts from, and the timer counter, which a delayed send's, a cancel's
   and a registered type's ordinal counts from, are 64-bit and stop at their
   largest value; statifier-ex counts without bound.
+
+It differs in these parts of the driver, the reference's session process
+made a synchronous value step:
+
+- One call also spends the round budget on the events it takes that an
+  immediate send to the session itself queued in the same call, and on
+  the immediate sends it delivers onto the internal queue; one more than
+  the budget halts the driver as a spent macrostep does, answering
+  `Effect::BudgetExhausted`. The reference's session never returns, so it
+  counts neither.
+- `State::advance` takes a whole number of milliseconds, so no duration is
+  negative; it refuses one that moves the clock past its largest value
+  with `Error::InvalidDuration`, the driver's name for what the reference
+  calls an invalid delay.
+- A send of a registered type is answered as an effect and nothing more:
+  the driver calls no host processor, takes no report of a failed send,
+  and writes an empty `_ioprocessors` entry for each registered type.
+- The `trace` option is taken and ignored: no trace effect is ported, so
+  none is answered.
+- `Effect::SendDelayed` and `Effect::Cancel` do not carry the caller
+  context the reference copies from the external event that started the
+  macrostep, and a host event carries none.
+- `State::configuration` and `Done::configuration` leave out a state the
+  document gave no id, as the reference leaves it out where it turns
+  states into ids.
+- `CompileReason::ExpressionCompileError` does not name the expression's
+  owner, which the reference's refusal does; the refusal's span locates
+  the expression.
 
 `compile` does not yet refuse a chart whose expressions call a function no
 evaluation can supply: statifier-ex refuses such a chart with the reason

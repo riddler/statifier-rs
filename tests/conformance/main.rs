@@ -21,6 +21,7 @@
 //! the apparatus are in `apparatus.rs`.
 
 mod checks;
+mod clock;
 mod corpus;
 mod ratchet;
 mod refresh;

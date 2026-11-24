@@ -8,7 +8,7 @@ use crate::xml::Location;
 /// a `<history>`'s own transitions, with the owning state's id.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Owner {
+pub enum DefaultTransitionOwner {
     /// The `<initial>` element of the state with this id.
     Initial(Option<String>),
     /// The `<history>` with this id.
@@ -21,6 +21,7 @@ pub enum Owner {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Reason {
     /// A state or `<data>` id written after its first occurrence.
+    #[non_exhaustive]
     DuplicateId {
         /// The repeated id.
         id: String,
@@ -28,17 +29,20 @@ pub enum Reason {
     /// A state or `<data>` written with `id=""`.
     EmptyId,
     /// A transition target that names no state.
+    #[non_exhaustive]
     UnresolvedTarget {
         /// The id that does not resolve.
         id: String,
     },
     /// An `initial` attribute, the state's or the root's, that names no
     /// state.
+    #[non_exhaustive]
     UnresolvedInitial {
         /// The id that does not resolve.
         id: String,
     },
     /// An initial or default target outside the state it initializes.
+    #[non_exhaustive]
     InitialNotDescendant {
         /// The target.
         id: String,
@@ -46,35 +50,41 @@ pub enum Reason {
         parent_id: Option<String>,
     },
     /// An initial on a state with no child states to enter.
+    #[non_exhaustive]
     InitialOnAtomicState {
         /// The state's id.
         id: Option<String>,
     },
     /// A state with both an `initial` attribute and an `<initial>` element.
+    #[non_exhaustive]
     InitialAttributeAndElement {
         /// The state's id.
         id: Option<String>,
     },
     /// An `<initial>` or `<history>` that holds other than one transition.
+    #[non_exhaustive]
     TransitionCount {
         /// Whose default transition.
-        owner: Owner,
+        owner: DefaultTransitionOwner,
         /// How many it holds.
         count: usize,
     },
     /// A default transition with no target.
+    #[non_exhaustive]
     TransitionMissingTarget {
         /// Whose default transition.
-        owner: Owner,
+        owner: DefaultTransitionOwner,
     },
     /// A default transition written with `event` or `cond`.
+    #[non_exhaustive]
     TransitionForbiddenAttribute {
         /// Whose default transition.
-        owner: Owner,
+        owner: DefaultTransitionOwner,
         /// `event` or `cond`.
         attribute: &'static str,
     },
     /// A `<history>` whose parent is not a compound state.
+    #[non_exhaustive]
     HistoryBadParent {
         /// The history's id.
         id: Option<String>,
@@ -82,36 +92,43 @@ pub enum Reason {
         parent_kind: &'static str,
     },
     /// A `<history>` `type` other than `shallow` or `deep`.
+    #[non_exhaustive]
     HistoryBadType {
         /// The value as written.
         raw: String,
     },
     /// A `<transition>` `type` other than `internal` or `external`.
+    #[non_exhaustive]
     TransitionBadType {
         /// The value as written.
         raw: String,
     },
     /// A root `binding` other than `early` or `late`.
+    #[non_exhaustive]
     ScxmlBadBinding {
         /// The value as written.
         raw: String,
     },
     /// A state child of a `<final>`.
+    #[non_exhaustive]
     FinalHasStates {
         /// The child's id.
         id: Option<String>,
     },
     /// A `<transition>` child of a `<final>`.
+    #[non_exhaustive]
     FinalHasTransitions {
         /// The `<final>`'s id.
         id: Option<String>,
     },
     /// A state with no id that holds a `<final>`.
+    #[non_exhaustive]
     FinalParentMissingId {
         /// The first `<final>` child's id.
         final_id: Option<String>,
     },
     /// A `<state>` entered by default whose first child is a `<history>`.
+    #[non_exhaustive]
     DefaultEntryNotEnterable {
         /// The state's id.
         id: Option<String>,
@@ -119,66 +136,79 @@ pub enum Reason {
         child_kind: &'static str,
     },
     /// A `<donedata>` on a state that is not a `<final>`.
+    #[non_exhaustive]
     DonedataNotOnFinal {
         /// The state's id.
         id: Option<String>,
     },
     /// A `<donedata>` with both `<content>` and `<param>` children.
+    #[non_exhaustive]
     DonedataContentAndParams {
         /// The state's id.
         id: Option<String>,
     },
     /// A `<content>` with both `expr` and inline content.
+    #[non_exhaustive]
     ContentExprAndText {
         /// The `expr` as written.
         expr: String,
     },
     /// A `<param>` with both `expr` and `location`.
+    #[non_exhaustive]
     ParamExprAndLocation {
         /// The param's name.
         name: String,
     },
     /// A `<param>` with neither `expr` nor `location`.
+    #[non_exhaustive]
     ParamNoValue {
         /// The param's name.
         name: String,
     },
     /// A root whose namespace is not SCXML's.
+    #[non_exhaustive]
     BadNamespace {
         /// The namespace the root resolves to, if any.
         uri: Option<String>,
     },
     /// A root whose `version` is not `1.0`.
+    #[non_exhaustive]
     BadVersion {
         /// The version as written, if any.
         version: Option<String>,
     },
     /// A root `datamodel` outside the values the reference accepts.
+    #[non_exhaustive]
     ScxmlBadDatamodel {
         /// The value as written.
         raw: String,
     },
     /// A `<data>` with both `expr` and `src`.
+    #[non_exhaustive]
     DataExprAndSrc {
         /// The data's id.
         id: String,
     },
     /// A `<data>` with `expr` or `src` and child text.
+    #[non_exhaustive]
     DataValueAndChildren {
         /// The data's id.
         id: String,
     },
     /// A `<data>` id that starts with `_`.
+    #[non_exhaustive]
     DataReservedId {
         /// The data's id.
         id: String,
     },
     /// A `<datamodel>` on a `<final>` or a `<history>`.
+    #[non_exhaustive]
     DatamodelBadParent {
         /// The parent's element name.
         kind: &'static str,
     },
     /// An `<assign>` with both `expr` and child content.
+    #[non_exhaustive]
     AssignExprAndText {
         /// The `expr` as written.
         expr: String,
@@ -200,6 +230,7 @@ pub enum Reason {
     /// An `<invoke>` with `namelist` and a `<param>` child.
     InvokeNamelistAndParam,
     /// An `<invoke>` `autoforward` other than `true` or `false`.
+    #[non_exhaustive]
     InvokeBadAutoforward {
         /// The value as written.
         raw: String,
@@ -225,6 +256,7 @@ pub enum Reason {
     /// A `<cancel>` with neither `sendid` nor `sendidexpr`.
     CancelNoSendid,
     /// An attribute name repeated on one tag.
+    #[non_exhaustive]
     DuplicateAttribute {
         /// The tag's name as written.
         element: String,
@@ -261,6 +293,7 @@ impl ValidationError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WarningReason {
     /// A `<raise>` or `<send>` inside `<finalize>`.
+    #[non_exhaustive]
     FinalizeForbiddenContent {
         /// The element's name.
         element: &'static str,
@@ -295,12 +328,12 @@ fn quote(value: Option<&String>) -> String {
     value.map_or_else(|| "nil".to_owned(), |value| format!("{value:?}"))
 }
 
-fn owner_description(owner: &Owner) -> String {
+fn owner_description(owner: &DefaultTransitionOwner) -> String {
     match owner {
-        Owner::Initial(None) => "<initial>".to_owned(),
-        Owner::Initial(Some(id)) => format!("<initial> on {id:?}"),
-        Owner::History(None) => "<history>".to_owned(),
-        Owner::History(Some(id)) => format!("<history> {id:?}"),
+        DefaultTransitionOwner::Initial(None) => "<initial>".to_owned(),
+        DefaultTransitionOwner::Initial(Some(id)) => format!("<initial> on {id:?}"),
+        DefaultTransitionOwner::History(None) => "<history>".to_owned(),
+        DefaultTransitionOwner::History(Some(id)) => format!("<history> {id:?}"),
     }
 }
 

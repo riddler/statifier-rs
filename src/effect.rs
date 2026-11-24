@@ -96,10 +96,10 @@ pub enum Effect {
     #[non_exhaustive]
     Send {
         /// The event's name, as `event` or `eventexpr` gave it; `None` when
-        /// neither was written.
+        /// neither was written or it was null.
         event: Option<Value>,
         /// The target, as `target` or `targetexpr` gave it; `None` when
-        /// neither was written, which is the session itself. For a type the
+        /// neither was written or it was null, which is the session itself. For a type the
         /// host registered, it is the host processor's own route and is
         /// never read here.
         target: Option<Value>,
@@ -141,10 +141,10 @@ pub enum Effect {
     #[non_exhaustive]
     SendDelayed {
         /// The event's name, as `event` or `eventexpr` gave it; `None` when
-        /// neither was written.
+        /// neither was written or it was null.
         event: Option<Value>,
         /// The target, as `target` or `targetexpr` gave it; `None` when
-        /// neither was written. It is judged when the delay has passed,
+        /// neither was written or it was null. It is judged when the delay has passed,
         /// not here, apart from a target that names nothing the SCXML Event
         /// I/O Processor carries, which is refused now.
         target: Option<Value>,

@@ -5,12 +5,18 @@
 //! Every refusal and every warning is a reason, a message for a person and
 //! the span of the source it names. The reason is normative: each variant is
 //! one of the reference's reasons, under its name, with the detail it
-//! carries. The message is not.
+//! carries, apart from the owner [`CompileReason::ExpressionCompileError`]
+//! leaves out. The message is not.
+//!
+//! Every variant that carries detail is `#[non_exhaustive]`, so a later
+//! version may add a field: a host matches its fields with `..` and never
+//! builds one. A field naming an element, an attribute or a kind of state
+//! from SCXML's fixed vocabulary is a `&'static str`.
 
 use crate::xml::Location;
 
 pub use crate::lowering::Reason as LoweringReason;
-pub use crate::validator::{Owner, Reason as ValidationReason, WarningReason};
+pub use crate::validator::{DefaultTransitionOwner, Reason as ValidationReason, WarningReason};
 pub use crate::xml::Reason as ReadReason;
 
 /// A span of the source: 1-based lines and columns, 0-based byte offsets and
@@ -82,6 +88,12 @@ pub enum CompileReason {
     /// condition, a value or a `<content>` expression. A refused `<assign>`
     /// or `<data>` value, `namelist` entry or `<script>` body is not
     /// refused here: it compiles to a step that fails when it executes.
+    ///
+    /// The reference also names the expression's owner (a transition, a
+    /// node of executable content, a `<donedata>`, a `<data>`, a global
+    /// script or an `<invoke>`); this version does not, and the refusal's
+    /// span locates the expression instead.
+    #[non_exhaustive]
     ExpressionCompileError {
         /// The expression as written.
         source: String,

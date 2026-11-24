@@ -24,6 +24,7 @@ pub(crate) mod system_variables;
 mod tests;
 
 use location::LocationReason;
+#[cfg(test)]
 use system_variables::{EventFields, EventType};
 
 use crate::machine::{Chart, Deferred, Expr, Program};
@@ -289,6 +290,9 @@ impl Failure {
     /// name ([`Failure::event_name`]), the type `platform`, the send id of a
     /// refused `<send>` and none otherwise, no origin or invoke id, and the
     /// failure ([`Failure::data`]) as its data.
+    // The loop builds the event through `Event::from_failure`; the tests read
+    // the value directly.
+    #[cfg(test)]
     pub(crate) fn event(&self) -> Value {
         let sendid = match self {
             Failure::SendRejected { send_id, .. } => Some(send_id.as_str()),

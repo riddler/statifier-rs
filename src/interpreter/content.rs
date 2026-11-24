@@ -37,7 +37,7 @@ mod send;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use send::{Routes, Sends};
+pub(crate) use send::{Route, Routes, Sends, parse_target};
 
 use crate::datamodel::location::write_location;
 use crate::datamodel::{Failure, Scope, evaluate, evaluate_cond, evaluate_deferred, execute};

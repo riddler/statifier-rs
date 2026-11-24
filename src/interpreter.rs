@@ -31,6 +31,10 @@ mod step;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use content::{Route, Routes, parse_target};
+pub(crate) use event_loop::{budget_exhausted, deliver_internal, handle_event, initialize};
+pub(crate) use machine_state::{Event, MachineState, RoundBudget, StartOptions};
+
 use crate::machine::Chart;
 use std::collections::{BTreeMap, BTreeSet};
 
