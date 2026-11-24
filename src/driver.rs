@@ -45,15 +45,16 @@
 //! time and started over whenever [`State::advance`] moves the clock on:
 //! the events it takes that an immediate send to the session itself queued
 //! in the same call, the immediate sends it delivers onto the internal
-//! queue, and the timers it fires that were scheduled in the same call. A
-//! call that would count one more than the budget on any of them halts the
-//! same way, answering [`Effect::BudgetExhausted`]. Under a bounded budget
-//! every call therefore returns, a chart that keeps rescheduling a timer
-//! due at once included, while a chain of timers with a delay is bounded by
-//! the duration advanced and never halts on these counts, however the host
-//! splits time. Under [`RoundBudget::Unbounded`] no count ever halts the
-//! driver, and such a call may never return. A timer an earlier call
-//! scheduled is never counted.
+//! queue, and the timers it fires that were scheduled at that same virtual
+//! time in the same call. A call that would count one more than the budget
+//! on any of them halts the same way, answering [`Effect::BudgetExhausted`].
+//! Under a bounded budget every call therefore returns, a chart that keeps
+//! rescheduling a timer due at once included, while timers with a delay, a
+//! chain or a fan-out, are bounded by the duration advanced and never halt
+//! on these counts, however the host splits time. Under
+//! [`RoundBudget::Unbounded`] no count ever halts the driver, and such a
+//! call may never return. A timer scheduled by an earlier call, or at an
+//! earlier virtual time, is never counted.
 
 #[cfg(test)]
 mod tests;
@@ -466,8 +467,9 @@ struct Call {
     sent_internal: u64,
     /// Whether this call has spent its budget: nothing more runs the chart.
     spent: bool,
-    /// The sequence of the first timer this call schedules: a timer at or
-    /// past it was scheduled in this call.
+    /// The sequence of the first timer this call schedules at the current
+    /// virtual time: a timer at or past it was scheduled at this time in
+    /// this call, as a host that advanced only to this time would see it.
     first_sequence: u64,
     /// Timers scheduled in this call that it fired at the current virtual
     /// time.
@@ -548,14 +550,17 @@ impl Call {
     /// The clock has moved on to a later virtual time: the call's three
     /// counts start over, so each bounds only what happens at one time, and
     /// a chain of timers with a delay is bounded by the duration advanced.
+    /// A timer scheduled at an earlier time is no longer counted when it
+    /// fires, as a call that started at this time would not count it.
     fn next_instant(&mut self) {
+        self.first_sequence = self.state.sequence;
         self.taken = 0;
         self.sent_internal = 0;
         self.fired = 0;
     }
 
-    /// Counts a timer this call scheduled against the budget as it fires,
-    /// at the current virtual time. Halts the driver when the budget has
+    /// Counts a timer scheduled at the current virtual time in this call
+    /// against the budget as it fires. Halts the driver when the budget has
     /// no room for it; a halted driver runs nothing, so its fires are not
     /// counted.
     fn count_fire(&mut self, timer: &Timer) {
