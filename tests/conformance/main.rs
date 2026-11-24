@@ -242,10 +242,11 @@ fn every_case_is_answered_pass_or_fail_with_no_skip() {
     }
 }
 
-// Sabotage: add "w3c" to runner::DRIVEN_SUITES; the assert_eq on the w3c
-// cases' one reason fails (and the ratchet would then claim w3c cases).
+// Sabotage: add "statifier" to runner::DRIVEN_SUITES; the assert_eq on the
+// statifier cases' one reason fails (and the ratchet would then claim
+// statifier cases).
 #[test]
-fn the_drive_runs_the_scion_suite_and_no_other() {
+fn the_drive_runs_the_scion_and_w3c_suites_and_no_other() {
     let corpus = corpus();
     let results = runner::run(&corpus, runner::drive);
     let not_driven = runner::Outcome::Fail(runner::NOT_DRIVEN.to_owned());
@@ -256,7 +257,7 @@ fn the_drive_runs_the_scion_suite_and_no_other() {
             .filter_map(corpus::id_of)
             .filter_map(|id| results.get(id))
             .collect();
-        if suite == "scion" {
+        if ["scion", "w3c"].contains(&suite) {
             assert!(!outcomes.contains(&not_driven), "{suite}");
         } else {
             assert_eq!(
@@ -371,131 +372,113 @@ fn the_drive_settles_the_clock_before_each_event_and_waits_to_the_deadline() {
     );
 }
 
-/// The start tags of `source`, each as its local name (the part after a
-/// namespace prefix) and its attributes' local names, in document order.
-/// A name ends at whitespace, `/` or `>`, so `<finalize>` is never read as
-/// `<final`; an attribute name ends at whitespace or `=`, so `id = "x"` is
-/// read as `id`; a quoted value is skipped whole, so a `>` or an `id=`
-/// inside one is not markup; and a comment, a CDATA section, a processing
-/// instruction and a declaration produce nothing. An unterminated tag
-/// answers the tags before it and stops, never panicking.
-fn start_tags(source: &str) -> Vec<(String, Vec<String>)> {
-    let local = |name: &str| name.rsplit(':').next().unwrap_or(name).to_owned();
-    let mut tags = Vec::new();
-    let mut rest = source;
-    while let Some(at) = rest.find('<') {
-        rest = &rest[at + 1..];
-        let close = match rest.chars().next() {
-            Some('!') if rest.starts_with("!--") => Some("-->"),
-            Some('!') if rest.starts_with("![CDATA[") => Some("]]>"),
-            Some('!' | '?' | '/') => Some(">"),
-            _ => None,
-        };
-        if let Some(close) = close {
-            let Some(end) = rest.find(close) else { break };
-            rest = &rest[end + close.len()..];
-            continue;
-        }
-        let name_end = rest
-            .find(|c: char| c.is_whitespace() || c == '/' || c == '>')
-            .unwrap_or(rest.len());
-        let name = local(&rest[..name_end]);
-        rest = &rest[name_end..];
-        let mut attributes = Vec::new();
-        loop {
-            rest = rest.trim_start();
-            if rest.is_empty() {
-                return tags;
-            }
-            if let Some(after) = rest.strip_prefix('>').or_else(|| rest.strip_prefix("/>")) {
-                rest = after;
-                break;
-            }
-            let attribute_end = rest
-                .find(|c: char| c.is_whitespace() || c == '=' || c == '>' || c == '/')
-                .unwrap_or(rest.len())
-                .max(1);
-            let attribute = &rest[..attribute_end];
-            rest = rest[attribute_end..].trim_start();
-            if attribute != "/" {
-                attributes.push(local(attribute));
-            }
-            if let Some(after) = rest.strip_prefix('=') {
-                rest = after.trim_start();
-                let Some(quote) = rest.chars().next().filter(|c| *c == '"' || *c == '\'') else {
-                    continue;
-                };
-                let Some(end) = rest[1..].find(quote) else {
-                    return tags;
-                };
-                rest = &rest[end + 2..];
-            }
-        }
-        tags.push((name, attributes));
-    }
-    tags
+/// `case` moved to the w3c suite, with `host` as its host object.
+fn w3c_case(mut case: serde_json::Value, host: serde_json::Value) -> serde_json::Value {
+    case["suite"] = serde_json::json!("w3c");
+    case["id"] = serde_json::json!("w3c/x");
+    case["host"] = host;
+    case
 }
 
-// Every state of every scion source carries an id, so the leaf read, which
-// leaves out a state with none, leaves out no active leaf of a scion case.
-// It reads the start tags word-bounded (start_tags), a prefixed
-// `<ns0:state>` by its local name included.
-// Sabotage: make start_tags push every attribute as "x"; the assertion
-// names the first scion case with a state, and goes red.
+// An active leaf with no id fails the case even when the named leaves
+// agree, running or stopped, as the reference's assert_every_leaf_named/2
+// fails it; a w3c case is held to it as a scion case is.
+// Sabotage: make runner::compare skip the count; both assert_eq go red (the
+// named leaves agree, so the cases pass).
 #[test]
-fn every_scion_state_carries_an_id() {
-    let corpus = corpus();
-    let mut states = 0;
-    for item in corpus.cases_of("scion") {
-        let source = item["source"].as_str().unwrap();
-        for (name, attributes) in start_tags(source) {
-            if ["state", "parallel", "final"].contains(&name.as_str()) {
-                states += 1;
-                assert!(
-                    attributes.iter().any(|attribute| attribute == "id"),
-                    "{} has a <{name}> with no id",
-                    corpus::id_of(item).unwrap_or_default()
-                );
-            }
-        }
-    }
-    assert!(states > 0, "the scan read no state");
-}
-
-// Sabotage: make start_tags end a name only at whitespace or `>`; the
-// assert_eq on `<finalize/>` and `<final/>` fails (the names run on).
-#[test]
-fn the_start_tag_scan_is_word_bounded_and_never_panics() {
-    let tags = start_tags(
-        r#"<?xml version="1.0"?><!-- <state> --><ns0:state id = "a" b='>'><finalize/><final/>
-           <![CDATA[<state>]]><parallel x="id=y"></parallel></ns0:state>"#,
+fn the_drive_fails_a_case_whose_active_leaf_has_no_id() {
+    let running = scion_case(
+        r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" initial="p">
+  <parallel id="p"><state id="a"/><state/></parallel>
+</scxml>"#,
+        &["a"],
+        &[],
     );
-    let names: Vec<(&str, Vec<&str>)> = tags
-        .iter()
-        .map(|(name, attributes)| {
-            (
-                name.as_str(),
-                attributes.iter().map(String::as_str).collect(),
-            )
-        })
-        .collect();
     assert_eq!(
-        names,
-        [
-            ("state", vec!["id", "b"]),
-            ("finalize", vec![]),
-            ("final", vec![]),
-            ("parallel", vec!["x"]),
-        ]
+        runner::drive(&w3c_case(running, serde_json::json!({}))),
+        runner::Outcome::Fail(
+            "the initial configuration: 1 active leaf state(s) have no id; the expectation [\"a\"] cannot name them"
+                .to_owned()
+        )
     );
-    for broken in ["<state", "<state id=\"a", "<!-- <state>", "<state id=", "<"] {
-        let _ = start_tags(broken);
-    }
+    let stopped = scion_case(
+        r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0"><final/></scxml>"#,
+        &[],
+        &[],
+    );
+    assert_eq!(
+        runner::drive(&stopped),
+        runner::Outcome::Fail(
+            "the initial configuration: 1 active leaf state(s) have no id; the expectation [] cannot name them"
+                .to_owned()
+        )
+    );
+}
+
+const SENDS: &str = r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" initial="a">
+  <state id="a">
+    <onentry><send type="x-test" event="e.out"/></onentry>
+    <transition event="error.*" target="z"/>
+  </state>
+  <state id="z"/>
+</scxml>"#;
+
+// The send types a case's host object declares are registered, so a send
+// of one is handed to the host and raises no error; undeclared, the send's
+// type is unknown and the chart takes the error.
+// Sabotage: make runner::options skip the send_types key; the first
+// assert_eq goes red (the chart moves to z).
+#[test]
+fn the_drive_registers_the_send_types_a_case_declares() {
+    let declared = w3c_case(
+        scion_case(SENDS, &["a"], &[]),
+        serde_json::json!({"send_types": ["x-test"]}),
+    );
+    assert_eq!(runner::drive(&declared), runner::Outcome::Pass);
+    let undeclared = w3c_case(scion_case(SENDS, &["a"], &[]), serde_json::json!({}));
+    assert_eq!(
+        runner::drive(&undeclared),
+        runner::Outcome::Fail(
+            "the initial configuration: expected active leaf states [\"a\"], got [\"z\"]"
+                .to_owned()
+        )
+    );
+}
+
+// A case naming an Event I/O Processor fails naming it, since this runner
+// runs none, and any other host key it cannot honour fails naming the key;
+// neither is skipped.
+// Sabotage: make runner::options ignore event_io_processors; the first
+// assert_eq goes red (the chart reaches its expected configuration).
+#[test]
+fn the_drive_fails_a_case_whose_host_it_cannot_honour_naming_what_it_needs() {
+    let processor = w3c_case(
+        scion_case(CHART, &["a", "c"], &[]),
+        serde_json::json!({"event_io_processors": ["http://www.w3.org/TR/scxml/#BasicHTTPEventProcessor"]}),
+    );
+    assert_eq!(
+        runner::drive(&processor),
+        runner::Outcome::Fail(
+            "the case needs the Event I/O Processor http://www.w3.org/TR/scxml/#BasicHTTPEventProcessor, which this runner does not run"
+                .to_owned()
+        )
+    );
+    let other = w3c_case(
+        scion_case(CHART, &["a", "c"], &[]),
+        serde_json::json!({"expect_sends": []}),
+    );
+    assert_eq!(
+        runner::drive(&other),
+        runner::Outcome::Fail(
+            "the case needs the host key expect_sends, which this runner does not honour"
+                .to_owned()
+        )
+    );
 }
 
 // Sabotage: list every case in runner::gap_lines, claimed or not; the
 // assert_eq on the lines fails (a claimed case appears). Keep the gap list
-// to the driven suites; the assert_eq on the ids fails (no w3c case).
+// to the driven suites; the assert_eq on the ids fails (no statifier case).
 #[test]
 fn the_gap_list_names_each_unclaimed_case_of_every_suite_in_order_with_its_features() {
     let corpus = corpus();
@@ -564,11 +547,17 @@ fn the_gap_list_names_each_unclaimed_case_of_every_suite_in_order_with_its_featu
     let lines = runner::pass_lines(&corpus, &results);
     assert_eq!(
         lines,
-        [format!(
-            "conformance: scion: {} of {} cases pass (the first in the reference's order: scion/actionSend/send1)",
-            corpus.cases_of("scion").len() - 1,
-            corpus.cases_of("scion").len()
-        )]
+        [
+            format!(
+                "conformance: scion: {} of {} cases pass (the first in the reference's order: scion/actionSend/send1)",
+                corpus.cases_of("scion").len() - 1,
+                corpus.cases_of("scion").len()
+            ),
+            format!(
+                "conformance: w3c: {0} of {0} cases pass (the first in the reference's order: w3c/test144)",
+                corpus.cases_of("w3c").len()
+            ),
+        ]
     );
 }
 

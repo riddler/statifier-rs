@@ -481,7 +481,7 @@ fn passing_abm() -> Results {
 // Sabotage: append a blank line to conformance/registry.json; the assert on
 // its problems fails (the encoding check names it).
 #[test]
-fn the_shipped_registry_passes_and_claims_the_scion_suite_alone() {
+fn the_shipped_registry_passes_and_claims_the_scion_and_w3c_suites_alone() {
     let corpus = corpus();
     let bytes = std::fs::read(root().join("registry.json")).unwrap();
     assert_eq!(
@@ -489,8 +489,13 @@ fn the_shipped_registry_passes_and_claims_the_scion_suite_alone() {
         Vec::<String>::new()
     );
     let parsed = registry::parse(&bytes).unwrap();
-    assert_eq!(parsed.claims, ["scion"]);
-    assert!(parsed.entries.iter().all(|entry| entry.suite == "scion"));
+    assert_eq!(parsed.claims, ["scion", "w3c-mandatory", "w3c-optional"]);
+    assert!(
+        parsed
+            .entries
+            .iter()
+            .all(|entry| entry.suite == "scion" || entry.suite == "w3c")
+    );
     assert!(parsed.entries.len() >= 60, "{}", parsed.entries.len());
 }
 

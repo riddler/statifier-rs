@@ -19,7 +19,7 @@
 //! `_sessionid`, and the registered send types read from the entries of
 //! `_ioprocessors` other than the SCXML Event I/O Processor's.
 
-use super::{Done, RoundBudget, State, ids, is_built_in, leaf_ids};
+use super::{Done, RoundBudget, State, ids, is_built_in, leaf_count, leaf_ids};
 use crate::interpreter::{self, Counters, MachineState, Routes, Sends};
 use crate::machine::{Chart, Machine};
 use predicator_rs::{Key, Map, Value};
@@ -419,6 +419,7 @@ impl Machine {
             donedata: Value::Undefined,
             configuration: ids(&core, core.configuration.iter().copied()),
             active_leaf_states: leaf_ids(&core, core.configuration.iter().copied()),
+            active_leaf_count: leaf_count(&core, core.configuration.iter().copied()),
         });
         Ok(State {
             core,

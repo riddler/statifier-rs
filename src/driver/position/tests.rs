@@ -293,6 +293,7 @@ fn a_stopped_position_imports_stopped() {
     let done = imported.done().expect("a stopped chart");
     assert_eq!(done.donedata, Value::Undefined);
     assert!(done.configuration.is_empty());
+    assert_eq!(done.active_leaf_count, 0);
     assert_eq!(
         imported.step("e.go", Value::Undefined).unwrap_err(),
         Error::NotRunning
@@ -672,6 +673,7 @@ mod serde {
         let done = stopped.state.done().unwrap();
         let text = serde_json::to_string(done).unwrap();
         assert!(text.contains("activeLeafStates"));
+        assert!(text.contains("\"activeLeafCount\":1"));
         assert_eq!(&serde_json::from_str::<Done>(&text).unwrap(), done);
         assert!(
             serde_json::from_str::<Effect>(
