@@ -151,7 +151,7 @@ The tree holds these instructions, the wurk manifest (`.claude/wurk.json`)
 and the tracker's configuration (`.beads/`), the crate, its gate, the
 workflows, and the vendored corpus with its conformance apparatus. The
 interpreter and the driver are built, and the registry claims the `scion`,
-`w3c-mandatory` and `w3c-optional` cases it lists.
+`statifier`, `w3c-mandatory` and `w3c-optional` cases it lists.
 
 - **The crate is `statifier`.** Its one hand-made publish is the
   maintainer's name claim at `0.0.0`; the first release from this

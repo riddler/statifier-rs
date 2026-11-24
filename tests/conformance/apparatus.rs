@@ -481,7 +481,7 @@ fn passing_abm() -> Results {
 // Sabotage: append a blank line to conformance/registry.json; the assert on
 // its problems fails (the encoding check names it).
 #[test]
-fn the_shipped_registry_passes_and_claims_the_scion_and_w3c_suites_alone() {
+fn the_shipped_registry_passes_and_claims_the_three_suites_alone() {
     let corpus = corpus();
     let bytes = std::fs::read(root().join("registry.json")).unwrap();
     assert_eq!(
@@ -489,12 +489,15 @@ fn the_shipped_registry_passes_and_claims_the_scion_and_w3c_suites_alone() {
         Vec::<String>::new()
     );
     let parsed = registry::parse(&bytes).unwrap();
-    assert_eq!(parsed.claims, ["scion", "w3c-mandatory", "w3c-optional"]);
+    assert_eq!(
+        parsed.claims,
+        ["scion", "statifier", "w3c-mandatory", "w3c-optional"]
+    );
     assert!(
         parsed
             .entries
             .iter()
-            .all(|entry| entry.suite == "scion" || entry.suite == "w3c")
+            .all(|entry| ["scion", "w3c", "statifier"].contains(&entry.suite.as_str()))
     );
     assert!(parsed.entries.len() >= 60, "{}", parsed.entries.len());
 }
@@ -1177,7 +1180,7 @@ fn the_clock_knobs_are_the_reference_harness_constants() {
 // the 150 ms timer fires and the chart reaches `c`.
 #[test]
 fn the_settle_window_fires_only_the_timers_due_within_it() {
-    let settled = clock::settle(&timed()).unwrap();
+    let settled = clock::settle(&timed(), &mut Vec::new()).unwrap();
     assert_eq!(settled.now_ms(), 100);
     assert_eq!(settled.configuration(), ["b"]);
     let idle = statifier::compile(
@@ -1187,17 +1190,29 @@ fn the_settle_window_fires_only_the_timers_due_within_it() {
     .start(statifier::Options::new("s-1"))
     .unwrap()
     .state;
-    assert_eq!(clock::settle(&idle).unwrap().now_ms(), 0);
+    assert_eq!(clock::settle(&idle, &mut Vec::new()).unwrap().now_ms(), 0);
 }
 
 // Sabotage: with the deadline ignored, the 5000 ms timer fires and the
 // chart reaches `d`.
 #[test]
 fn the_deadline_stops_waiting_four_seconds_after_the_event() {
-    let reached = clock::await_until(&timed(), 0, |state| state.configuration() == ["z"]).unwrap();
+    let reached = clock::await_until(
+        &timed(),
+        0,
+        |state| state.configuration() == ["z"],
+        &mut Vec::new(),
+    )
+    .unwrap();
     assert_eq!(reached.configuration(), ["c"]);
     assert_eq!(reached.now_ms(), 150);
-    let early = clock::await_until(&timed(), 0, |state| state.configuration() == ["b"]).unwrap();
+    let early = clock::await_until(
+        &timed(),
+        0,
+        |state| state.configuration() == ["b"],
+        &mut Vec::new(),
+    )
+    .unwrap();
     assert_eq!(early.now_ms(), 60);
 }
 
@@ -1216,7 +1231,7 @@ fn the_deadline_wait_ends_on_a_timer_rescheduled_at_once() {
     .start(statifier::Options::new("s-1"))
     .unwrap()
     .state;
-    let waited = clock::await_until(&state, 0, |_| false).unwrap();
+    let waited = clock::await_until(&state, 0, |_| false, &mut Vec::new()).unwrap();
     assert_eq!(waited.next_due_ms(), None);
 }
 

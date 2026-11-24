@@ -88,10 +88,11 @@ closes) or one its per-suite arms forbid, hands every case to the drive,
 requires every case this registry claims to pass, and reports per suite how
 many cases are not yet claimed. The drive (`drive` in
 `tests/conformance/runner.rs`) is the one place the crate is plugged into the
-run, through the crate's public surface alone. It drives the scion and w3c
-suites as the reference's harness drives a case: it compiles the source,
-starts the chart with the send types the case's `host` object registers,
-and compares the active leaf states (`State::active_leaf_states`, or
+run, through the crate's public surface alone. It drives every suite as
+the reference's harness drives a case: it compiles the source, starts the
+chart with the send types the case's `host` object registers, sends each
+step's event with the step's `data` when it gives one, and compares the
+active leaf states (`State::active_leaf_states`, or
 `Done::active_leaf_states` once the chart has stopped, as the reference's
 harness reads its done effect) with the case's initial configuration
 and, after each step's event, with that step's configuration, settling the
@@ -102,8 +103,19 @@ leaves (`State::active_leaf_count`, or `Done::active_leaf_count`) against
 the ids read, so a case whose active leaf has no id fails, as the
 reference's harness fails it. A case whose `host` object needs what the
 drive does not honour, such as an Event I/O Processor it does not run,
-fails naming it. Every case of the statifier suite fails with the reason
-that it is not driven. The registry check prints, for each driven suite,
+fails naming it. Every send of a registered type the driver hands the
+host over the whole execution is recorded in the case's item shape, a
+cancel the driver hands the host marking a delayed send whose expected
+item says `cancelled`, as the reference's host case runner
+(`lib/mix/statifier/corpus/host_case.ex` at the tag) records them; once
+every configuration agrees, the sends recorded must be exactly the
+case's `expect_sends`, in order. A case the drive cannot compare yet
+fails before the chart starts, naming what it waits on: a host key it
+does not honour (the accepts check's `declared_events` and
+`expect_accepts`, the chart diff's `to_source`, `expect_diff`, `mapping`
+and `expect_compatible_at`), an expected send whose outcome is `fail`
+(the failed-send report), and a step carrying `expect_position` (the
+position rendering). The registry check prints, for each driven suite,
 how many cases pass, and the gap list: every case of every suite the
 registry does not claim, in the reference's order, with its conformance
 class when the corpus gives one, the features it needs, the keys of its
