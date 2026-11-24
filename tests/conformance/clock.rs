@@ -29,7 +29,10 @@ pub fn settle(state: &State) -> Result<State, Error> {
 
 /// The configuration deadline: due timers fire, earliest first, until
 /// `reached` holds, the chart has stopped, no timer is pending, or the next
-/// one falls due more than [`CONFIGURATION_DEADLINE_MS`] after `since`.
+/// one falls due more than [`CONFIGURATION_DEADLINE_MS`] after `since`. It
+/// ends because every advance does: a chart that keeps rescheduling a timer
+/// due at once spends the call's budget and halts, and a halted chart
+/// schedules nothing more.
 pub fn await_until(
     state: &State,
     since: u64,
@@ -43,7 +46,7 @@ pub fn await_until(
         }
         match current.next_due_ms() {
             Some(due) if due <= deadline => {
-                current = current.advance(due - current.now_ms())?.state;
+                current = current.advance(due.saturating_sub(current.now_ms()))?.state;
             }
             _ => return Ok(current),
         }

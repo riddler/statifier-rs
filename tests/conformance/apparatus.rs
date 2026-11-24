@@ -1124,3 +1124,22 @@ fn the_deadline_stops_waiting_four_seconds_after_the_event() {
     let early = clock::await_until(&timed(), 0, |state| state.configuration() == ["b"]).unwrap();
     assert_eq!(early.now_ms(), 60);
 }
+
+// A chart that reschedules a timer due at once under the default budget:
+// the wait still ends.
+// Sabotage: with the driver's fired-timer count removed, this never returns.
+#[test]
+fn the_deadline_wait_ends_on_a_timer_rescheduled_at_once() {
+    let state = statifier::compile(
+        r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" initial="a">
+             <state id="a"><onentry><send event="tick" delay="0ms"/></onentry>
+               <transition event="tick"><send event="tick" delay="0ms"/></transition></state>
+           </scxml>"#,
+    )
+    .unwrap()
+    .start(statifier::Options::new("s-1"))
+    .unwrap()
+    .state;
+    let waited = clock::await_until(&state, 0, |_| false).unwrap();
+    assert_eq!(waited.next_due_ms(), None);
+}

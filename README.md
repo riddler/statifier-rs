@@ -125,11 +125,13 @@ It differs in these parts of the driver, the reference's session process
 made a synchronous value step:
 
 - One call also spends the round budget on the events it takes that an
-  immediate send to the session itself queued in the same call, and on
-  the immediate sends it delivers onto the internal queue; one more than
-  the budget halts the driver as a spent macrostep does, answering
-  `Effect::BudgetExhausted`. The reference's session never returns, so it
-  counts neither.
+  immediate send to the session itself queued in the same call, on the
+  immediate sends it delivers onto the internal queue, and on the timers it
+  fires that were scheduled in the same call; one more than the budget on
+  any of the three halts the driver as a spent macrostep does, answering
+  `Effect::BudgetExhausted`, so every call returns. A timer an earlier call
+  scheduled is not counted. The reference's session never returns, so it
+  counts none of them.
 - `State::advance` takes a whole number of milliseconds, so no duration is
   negative; it refuses one that moves the clock past its largest value
   with `Error::InvalidDuration`, the driver's name for what the reference

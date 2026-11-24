@@ -510,3 +510,65 @@ fn every_corpus_chart_starts_steps_and_advances_without_a_panic() {
         );
     }
 }
+
+// A halted driver drops a fired send to the internal queue or to a target it
+// cannot reach: the chart is not run again, and no second budget effect.
+// Sabotage: with `fired_internal` delivering whatever the halt, the advance
+// runs the chart with a fresh budget and answers a second BudgetExhausted.
+#[test]
+fn a_halted_driver_drops_a_fired_internal_or_unreachable_send() {
+    let machine = machine(
+        r#" initial="idle""#,
+        r##"<state id="idle"><onentry>
+             <send event="e.up" target="#_parent" delay="10ms"/>
+             <send event="e.in" targetexpr="'#_internal'" delay="10ms"/>
+           </onentry><transition event="go" target="loop"/></state>
+           <state id="loop"><transition target="loop2"/></state>
+           <state id="loop2"><transition target="loop"/></state>"##,
+    );
+    let mut options = Options::new("s-1");
+    options.round_budget = budget(5);
+    let started = machine.start(options).unwrap();
+    let stepped = started.state.step("go", Value::Undefined).unwrap();
+    let halted = stepped.state.configuration();
+    assert!(matches!(
+        stepped.effects.last(),
+        Some(Effect::BudgetExhausted { .. })
+    ));
+    let advanced = stepped.state.advance(20).unwrap();
+    assert!(advanced.effects.is_empty(), "{:#?}", advanced.effects);
+    assert_eq!(advanced.state.configuration(), halted);
+    assert_eq!(advanced.state.next_due_ms(), None);
+}
+
+// A timer that reschedules itself due at once would fire forever; the call
+// counts the timers it scheduled and fired, and halts past the budget.
+// Sabotage: with `count_fire` counting nothing, advance(0) never returns.
+#[test]
+fn a_timer_rescheduled_due_at_once_spends_the_call_s_budget() {
+    let machine = machine(
+        r#" initial="a""#,
+        r#"<state id="a"><onentry><send event="tick" delay="0ms"/></onentry>
+           <transition event="tick"><send event="tick" delay="0ms"/></transition></state>"#,
+    );
+    let mut options = Options::new("s-1");
+    options.round_budget = budget(3);
+    let started = machine.start(options).unwrap();
+    let advanced = started.state.advance(0).unwrap();
+    let exhausted = advanced
+        .effects
+        .iter()
+        .filter(|effect| matches!(effect, Effect::BudgetExhausted { .. }))
+        .count();
+    assert_eq!(exhausted, 1);
+    // The start's timer and three it scheduled fire, then the fourth is
+    // fired into the queue of a halted driver.
+    let sent = advanced
+        .effects
+        .iter()
+        .filter(|effect| matches!(effect, Effect::SendDelayed { .. }))
+        .count();
+    assert_eq!(sent, 4);
+    assert_eq!(advanced.state.next_due_ms(), None);
+    assert_eq!(advanced.state.now_ms(), 0);
+}
