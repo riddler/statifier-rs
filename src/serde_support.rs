@@ -168,6 +168,11 @@ impl Serialize for BlockOwner {
                 map.serialize_entry("kind", "transition")?;
                 map.serialize_entry("transition", transition)?;
             }
+            BlockOwner::Invoke { state, invoke } => {
+                map.serialize_entry("kind", "invoke")?;
+                map.serialize_entry("state", state)?;
+                map.serialize_entry("invoke", invoke)?;
+            }
             BlockOwner::Finalize { state, invoke } => {
                 map.serialize_entry("kind", "finalize")?;
                 map.serialize_entry("state", state)?;
@@ -347,6 +352,61 @@ impl Serialize for Effect {
                 map.serialize_entry("contentIndex", content_index)?;
                 map.serialize_entry("owner", owner)?;
                 counters(&mut map, [*macrostep, *microstep, *round])?;
+            }
+            Effect::Invoke {
+                invoke_id,
+                invoke_type,
+                src,
+                params,
+                content,
+                autoforward,
+                state_index,
+                invoke_index,
+                macrostep,
+                microstep,
+                round,
+            } => {
+                map.serialize_entry("kind", "invoke")?;
+                map.serialize_entry("invokeId", invoke_id)?;
+                optional(&mut map, "invokeType", invoke_type.as_ref())?;
+                optional(&mut map, "src", src.as_ref())?;
+                map.serialize_entry("params", params)?;
+                optional(&mut map, "content", content.as_ref())?;
+                map.serialize_entry("autoforward", autoforward)?;
+                map.serialize_entry("stateIndex", state_index)?;
+                map.serialize_entry("invokeIndex", invoke_index)?;
+                counters(&mut map, [*macrostep, *microstep, *round])?;
+            }
+            Effect::CancelInvoke {
+                invoke_id,
+                state_index,
+                macrostep,
+                microstep,
+                round,
+            } => {
+                map.serialize_entry("kind", "cancel_invoke")?;
+                map.serialize_entry("invokeId", invoke_id)?;
+                map.serialize_entry("stateIndex", state_index)?;
+                counters(&mut map, [*macrostep, *microstep, *round])?;
+            }
+            Effect::Autoforward {
+                invoke_id,
+                state_index,
+                event,
+                macrostep,
+                microstep,
+                round,
+            } => {
+                map.serialize_entry("kind", "autoforward")?;
+                map.serialize_entry("invokeId", invoke_id)?;
+                map.serialize_entry("stateIndex", state_index)?;
+                map.serialize_entry("event", event)?;
+                counters(&mut map, [*macrostep, *microstep, *round])?;
+            }
+            Effect::Child { session_id, effect } => {
+                map.serialize_entry("kind", "child")?;
+                map.serialize_entry("sessionId", session_id)?;
+                map.serialize_entry("effect", effect.as_ref())?;
             }
         }
         map.end()
@@ -598,6 +658,10 @@ fn owner_of(value: Value) -> Result<BlockOwner, String> {
         "transition" => Ok(BlockOwner::Transition {
             transition: fields.usize("transition")?,
         }),
+        "invoke" => Ok(BlockOwner::Invoke {
+            state: fields.usize("state")?,
+            invoke: fields.usize("invoke")?,
+        }),
         "finalize" => Ok(BlockOwner::Finalize {
             state: fields.usize("state")?,
             invoke: fields.usize("invoke")?,
@@ -773,6 +837,63 @@ fn effect_of(value: Value) -> Result<Effect, String> {
                 macrostep,
                 microstep,
                 round,
+            }
+        }
+        "invoke" => {
+            let invoke_id = fields.string("invokeId")?;
+            let invoke_type = fields.optional("invokeType");
+            let src = fields.optional("src");
+            let params = fields.take("params")?;
+            let content = fields.optional("content");
+            let autoforward = fields.bool("autoforward")?;
+            let state_index = fields.usize("stateIndex")?;
+            let invoke_index = fields.usize("invokeIndex")?;
+            let [macrostep, microstep, round] = fields.counters()?;
+            Effect::Invoke {
+                invoke_id,
+                invoke_type,
+                src,
+                params,
+                content,
+                autoforward,
+                state_index,
+                invoke_index,
+                macrostep,
+                microstep,
+                round,
+            }
+        }
+        "cancel_invoke" | "autoforward" => {
+            let invoke_id = fields.string("invokeId")?;
+            let state_index = fields.usize("stateIndex")?;
+            if kind == "cancel_invoke" {
+                let [macrostep, microstep, round] = fields.counters()?;
+                Effect::CancelInvoke {
+                    invoke_id,
+                    state_index,
+                    macrostep,
+                    microstep,
+                    round,
+                }
+            } else {
+                let event = fields.take("event")?;
+                let [macrostep, microstep, round] = fields.counters()?;
+                Effect::Autoforward {
+                    invoke_id,
+                    state_index,
+                    event,
+                    macrostep,
+                    microstep,
+                    round,
+                }
+            }
+        }
+        "child" => {
+            let session_id = fields.string("sessionId")?;
+            let effect = effect_of(fields.take("effect")?)?;
+            Effect::Child {
+                session_id,
+                effect: Box::new(effect),
             }
         }
         _ => return Err(format!("an effect of kind {kind:?} is unknown")),

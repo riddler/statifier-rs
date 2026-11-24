@@ -25,13 +25,16 @@
 //! - `returnDoneEvent` is an effect, [`Effect::Done`], answered last when
 //!   the chart stops.
 //!
-//! The invoke pass the pseudocode runs at the end of each macrostep, and the
-//! finalize and autoforward pass before an external event's selection,
-//! arrive with `<invoke>`; until then a chart starts no invocation, and the
-//! internal queue a stable macrostep leaves is always empty, so the
-//! pseudocode's `continue` after the invoke pass never fires.
+//! - One budget spans the whole of a macrostep's loop, the rounds the
+//!   pseudocode's `continue` after the invoke pass re-enters included, as
+//!   the reference threads it.
+//!
+//! The invoke pass runs once the rounds are stable while the chart runs,
+//! and the finalize and autoforward pass before an external event's
+//! selection ([`invoke`](super::invoke)).
 
 use super::binding;
+use super::invoke;
 use super::machine_state::{Event, MachineState, RoundBudget, StartOptions};
 use super::selection::{Outcome, select_eventless_transitions, select_transitions};
 use super::step;
@@ -100,7 +103,7 @@ pub(crate) fn initialize(machine: &Machine, options: StartOptions) -> Stepped {
 }
 
 /// `mainEventLoop`'s external-event body: a new macrostep, `_event` set to
-/// `event`, the transitions it enables selected and taken, then the
+/// `event`, the finalize and autoforward pass, the transitions it enables selected and taken, then the
 /// macrostep run. The answered position's `last_selection` says whether the
 /// event selected a transition. A chart that has stopped refuses.
 pub(crate) fn handle_event(state: &MachineState, event: &Event) -> Result<Stepped, NotRunning> {
@@ -111,6 +114,7 @@ pub(crate) fn handle_event(state: &MachineState, event: &Event) -> Result<Steppe
     state.begin_macrostep();
     state.put_event(event);
     let mut effects = Vec::new();
+    invoke::finalize_autoforward(&mut state, event, &mut effects);
     let transitions = select(&mut state, Some(&event.name));
     run_selected(&mut state, &transitions, &mut effects);
     main_event_loop(&mut state, &mut effects);
@@ -134,10 +138,8 @@ pub(crate) fn deliver_internal(state: &MachineState, event: Event) -> Result<Ste
 }
 
 /// `mainEventLoop`'s cancel path: `running` cleared, then `exitInterpreter`.
-/// A chart that has stopped refuses.
-// No driver call cancels a chart, or steps one round or one macrostep
-// alone, yet; the tests reach the port through it.
-#[cfg(test)]
+/// The driver cancels an invoked child this way. A chart that has stopped
+/// refuses.
 pub(crate) fn cancel(state: &MachineState) -> Result<Stepped, NotRunning> {
     if !state.running {
         return Err(NotRunning);
@@ -172,36 +174,55 @@ pub(crate) fn microstep(state: &MachineState) -> (Stepped, Round) {
 pub(crate) fn macrostep(state: &MachineState) -> Stepped {
     let mut state = state.clone();
     let mut effects = Vec::new();
-    let folded = fold(&mut state, &mut effects);
+    let mut left = state.max_macrostep_rounds;
+    let folded = fold(&mut state, &mut effects, &mut left);
     terminal(&state, folded, &mut effects);
     Stepped { state, effects }
 }
 
-// `mainEventLoop`'s body after the caller's own selection: the rounds run,
-// the effect that ended them, and, once the chart has stopped,
-// `exitInterpreter`.
+// `mainEventLoop`'s body after the caller's own selection: the rounds run;
+// then, while the chart runs, the invoke pass, and the pseudocode's
+// `continue` when the pass left the internal queue non-empty, under the
+// budget the rounds left; the effect that ended the loop; and, once the
+// chart has stopped, `exitInterpreter`.
 fn main_event_loop(state: &mut MachineState, effects: &mut Vec<Effect>) {
-    let folded = fold(state, effects);
-    terminal(state, folded, effects);
-    if !state.running {
-        step::exit_interpreter(state, effects);
+    let mut left = state.max_macrostep_rounds;
+    loop {
+        let folded = fold(state, effects, &mut left);
+        if !state.running {
+            terminal(state, folded, effects);
+            step::exit_interpreter(state, effects);
+            return;
+        }
+        invoke::invoke_pass(state, effects);
+        if state.internal_queue.is_empty() {
+            terminal(state, folded, effects);
+            return;
+        }
+        if let (RoundBudget::Rounds(0), RoundBudget::Rounds(spent)) =
+            (left, state.max_macrostep_rounds)
+        {
+            terminal(state, Folded::Exhausted(spent), effects);
+            return;
+        }
     }
 }
 
-// The rounds, each that progresses charged against the budget; reaching a
-// stable configuration costs nothing beyond the rounds already charged.
-fn fold(state: &mut MachineState, effects: &mut Vec<Effect>) -> Folded {
-    let budget = state.max_macrostep_rounds;
-    let mut left = budget;
+// The rounds, each that progresses charged against the budget `left`;
+// reaching a stable configuration costs nothing beyond the rounds already
+// charged.
+fn fold(state: &mut MachineState, effects: &mut Vec<Effect>, left: &mut RoundBudget) -> Folded {
     loop {
-        if let (RoundBudget::Rounds(0), RoundBudget::Rounds(spent)) = (left, budget) {
+        if let (RoundBudget::Rounds(0), RoundBudget::Rounds(spent)) =
+            (*left, state.max_macrostep_rounds)
+        {
             return Folded::Exhausted(spent);
         }
         if round(state, effects) == Round::Quiescent {
             return Folded::Quiescent;
         }
-        if let RoundBudget::Rounds(rounds) = left {
-            left = RoundBudget::Rounds(rounds.saturating_sub(1));
+        if let RoundBudget::Rounds(rounds) = *left {
+            *left = RoundBudget::Rounds(rounds.saturating_sub(1));
         }
     }
 }

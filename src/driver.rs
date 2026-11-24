@@ -18,11 +18,44 @@
 //! Processor: no target, and the session's own `#_scxml_` address, join the
 //! session's external queue; `#_internal` is delivered onto the internal
 //! queue and the chart runs to a stable configuration again, after the
-//! effects of the batch that sent it, as the reference defers it. A driver
-//! session has no parent and starts no invocation, so `#_parent`, another
-//! session's address and an invocation's name are unreachable: the
-//! interpreter refuses an immediate send to one with `error.communication`,
-//! and a delayed one raises the same event when its timer fires.
+//! effects of the batch that sent it, as the reference defers it.
+//! `#_parent` from an invoked child, and `#_` followed by the id of a live
+//! invocation, deliver as external events (below). Another session's
+//! address, a parent a session does not have and an invocation that is not
+//! live are unreachable: the interpreter refuses an immediate send to one
+//! with `error.communication`, and a delayed one raises the same event when
+//! its timer fires.
+//!
+//! Invocations, as the reference's session and its built-in `scxml`
+//! handler run them (`Statifier.Session`, `Statifier.Session.Invocations`
+//! and `Statifier.Invoke.Source` in statifier-ex), with a tree of session
+//! states in place of processes. An [`Effect::Invoke`] of the SCXML type
+//! whose content is markup compiles it, a root with no namespace accepted
+//! as inline content is read, and starts it as a child session. Its session
+//! id is its parent's, a dot and the invoke id; its datamodel is seeded with
+//! the params a root `<data>` of the child names, the rest dropped; it
+//! inherits its parent's registered send types, and starts with the
+//! default round budget and no trace, as the reference starts a child its
+//! parent passes neither. A content that is not markup or does not compile, and an
+//! invocation with no content (`src` is never fetched), raise
+//! `error.communication`; any other type raises `error.execution`. A child
+//! runs inside its parent's call on its parent's virtual clock: starting
+//! it, an event sent to it and an event forwarded to it
+//! ([`Effect::Autoforward`]) each run it to a stable configuration at once,
+//! and its timers fire with its parent's, in due-then-scheduled order
+//! across the tree. Every effect a child answers is among the call's
+//! effects, in the order made, as an [`Effect::Child`] naming its session
+//! id.
+//!
+//! What a child sends its parent (an event to `#_parent`, carrying the
+//! invoke id; a notice that it reached a top-level final, ahead of the
+//! batch that stops it; and its `done.invoke.` event with its donedata)
+//! waits in the parent's mailbox, taken one entry at a time once the
+//! parent's external queue is empty. An entry whose invocation is no longer
+//! live is discarded, and the done event retires its invocation once taken.
+//! An [`Effect::CancelInvoke`] retires the invocation and stops its child,
+//! running its `<onexit>` handlers, unless the child already said it
+//! completed; a cancelled child returns no done event.
 //!
 //! The virtual clock starts at 0. A delayed send becomes a pending timer due
 //! at the clock's time plus its delay; [`State::advance`] moves the clock and
@@ -56,6 +89,7 @@
 //! call may never return. A timer scheduled by an earlier call, or at an
 //! earlier virtual time, is never counted.
 
+mod invocations;
 mod position;
 #[cfg(test)]
 mod tests;
@@ -67,7 +101,7 @@ use crate::effect::Effect;
 use crate::interpreter::{self, Event, MachineState, Route, Routes, StartOptions};
 use crate::machine::Machine;
 use predicator_rs::{Map, Value};
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 use std::num::NonZeroU64;
 
@@ -312,6 +346,75 @@ pub struct State {
     external_queue: VecDeque<Event>,
     halted: bool,
     done: Option<Done>,
+    /// The live invocations' child sessions, by invoke id.
+    invocations: BTreeMap<String, Invocation>,
+    /// What the session's children sent it and it has not taken.
+    mailbox: VecDeque<Mail>,
+    /// The invoke id this session was started under, `None` for a session
+    /// the host started.
+    invoked_as: Option<String>,
+    /// Whether the session's parent cancelled it.
+    cancelled: bool,
+}
+
+/// A live invocation of a child session, as its parent holds it.
+#[derive(Debug, Clone)]
+struct Invocation {
+    /// Whether the child said it reached a top-level final.
+    completed: bool,
+    /// The child's state; its clock and timer sequence are its parent's as
+    /// they stood when it last ran.
+    child: State,
+}
+
+/// What a child sent its parent and the parent has not taken.
+#[derive(Debug, Clone)]
+enum Mail {
+    /// The child reached a top-level final.
+    Completed { invoke_id: String },
+    /// An event the child sent to `#_parent`.
+    Event { invoke_id: String, event: Event },
+    /// The child stopped on its own, with this donedata.
+    Done { invoke_id: String, donedata: Value },
+}
+
+impl Mail {
+    /// The invocation it came from.
+    fn invoke_id(&self) -> &str {
+        match self {
+            Mail::Completed { invoke_id }
+            | Mail::Event { invoke_id, .. }
+            | Mail::Done { invoke_id, .. } => invoke_id,
+        }
+    }
+}
+
+impl State {
+    /// A session over a core that has just started, at virtual time
+    /// `now_ms` with the timer sequence at `sequence`.
+    fn fresh(
+        core: MachineState,
+        session_id: String,
+        round_budget: RoundBudget,
+        trace: bool,
+    ) -> Self {
+        State {
+            core,
+            session_id,
+            round_budget,
+            trace,
+            now_ms: 0,
+            timers: Vec::new(),
+            sequence: 0,
+            external_queue: VecDeque::new(),
+            halted: false,
+            done: None,
+            invocations: BTreeMap::new(),
+            mailbox: VecDeque::new(),
+            invoked_as: None,
+            cancelled: false,
+        }
+    }
 }
 
 impl Machine {
@@ -351,18 +454,12 @@ impl Machine {
                 max_macrostep_rounds: options.round_budget.interpreter(),
             },
         );
-        let mut call = Call::open(State {
-            core: started.state,
-            session_id: options.session_id,
-            round_budget: options.round_budget,
-            trace: options.trace,
-            now_ms: 0,
-            timers: Vec::new(),
-            sequence: 0,
-            external_queue: VecDeque::new(),
-            halted: false,
-            done: None,
-        });
+        let mut call = Call::open(State::fresh(
+            started.state,
+            options.session_id,
+            options.round_budget,
+            options.trace,
+        ));
         call.perform(started.effects);
         call.drain();
         Ok(call.close())
@@ -400,7 +497,8 @@ impl State {
     /// Moves the virtual clock forward `ms` milliseconds, firing every
     /// pending timer due by then, earliest first and, at one due time, in
     /// the order they were scheduled, each run to completion before the
-    /// next. A stopped chart has no timer, so only its clock moves.
+    /// next. A timer an invoked child scheduled fires the same way, in the
+    /// child. A stopped chart has no timer, so only its clock moves.
     ///
     /// Refused with [`Error::InvalidDuration`] when the clock would pass its
     /// largest value.
@@ -410,15 +508,12 @@ impl State {
             .checked_add(ms)
             .ok_or(Error::InvalidDuration { ms })?;
         let mut call = Call::open(self.clone());
-        while let Some(timer) = call.next_due(until) {
-            if timer.due_ms > call.state.now_ms {
+        while let Some((path, due_ms, sequence)) = call.next_due(until) {
+            if due_ms > call.state.now_ms {
                 call.next_instant();
             }
-            call.state.now_ms = timer.due_ms;
-            call.count_fire(&timer);
-            let effects = call.route(timer.send, false);
-            call.perform(effects);
-            call.drain();
+            call.state.now_ms = due_ms;
+            call.fire_at(&path, sequence);
         }
         call.state.now_ms = until;
         Ok(call.close())
@@ -508,10 +603,18 @@ impl State {
         self.now_ms
     }
 
-    /// The virtual time the earliest pending timer fires at, `None` when no
-    /// timer is pending.
+    /// The virtual time the earliest pending timer fires at, an invoked
+    /// child's included, `None` when no timer is pending.
     pub fn next_due_ms(&self) -> Option<u64> {
-        self.timers.iter().map(|timer| timer.due_ms).min()
+        self.timers
+            .iter()
+            .map(|timer| timer.due_ms)
+            .chain(
+                self.invocations
+                    .values()
+                    .filter_map(|invocation| invocation.child.next_due_ms()),
+            )
+            .min()
     }
 }
 
@@ -563,6 +666,15 @@ struct Queued {
 struct Call {
     state: State,
     external: VecDeque<Queued>,
+    /// The mailbox, each entry with whether this call counts it when it
+    /// takes it.
+    mailbox: VecDeque<(Mail, bool)>,
+    /// What this session sent its parent in this call, each with whether
+    /// the parent counts it.
+    outbox: Vec<(Mail, bool)>,
+    /// The external event the call is taking, which an autoforward
+    /// delivers.
+    taking: Option<Event>,
     effects: Vec<Effect>,
     /// Counted events taken in this call at the current virtual time.
     taken: u64,
@@ -592,9 +704,16 @@ impl Call {
                 counted: false,
             })
             .collect();
+        let mailbox = std::mem::take(&mut state.mailbox)
+            .into_iter()
+            .map(|mail| (mail, false))
+            .collect();
         Call {
             state,
             external,
+            mailbox,
+            outbox: Vec::new(),
+            taking: None,
             effects: Vec::new(),
             taken: 0,
             sent_internal: 0,
@@ -605,50 +724,111 @@ impl Call {
     }
 
     /// The state the call leaves, and its effects.
-    fn close(mut self) -> Moved {
-        self.state.external_queue = self.external.into_iter().map(|q| q.event).collect();
-        Moved {
-            state: self.state,
-            effects: self.effects,
-        }
+    fn close(self) -> Moved {
+        let (state, effects, _) = self.finish();
+        Moved { state, effects }
     }
 
-    /// The earliest timer due by `until`, the first scheduled among equals,
-    /// taken off the pending list.
-    fn next_due(&mut self, until: u64) -> Option<Timer> {
-        let position = self
-            .state
-            .timers
-            .iter()
-            .enumerate()
-            .filter(|(_, timer)| timer.due_ms <= until)
-            .min_by_key(|(_, timer)| (timer.due_ms, timer.sequence))
-            .map(|(position, _)| position)?;
-        Some(self.state.timers.remove(position))
+    /// The state the call leaves, its effects, and what it sent its parent.
+    fn finish(mut self) -> (State, Vec<Effect>, Vec<(Mail, bool)>) {
+        self.state.external_queue = self.external.into_iter().map(|q| q.event).collect();
+        self.state.mailbox = self.mailbox.into_iter().map(|(mail, _)| mail).collect();
+        (self.state, self.effects, self.outbox)
+    }
+
+    /// The earliest timer due by `until` anywhere in the tree of sessions,
+    /// the first scheduled among equals: the invoke ids from this session
+    /// down to the one holding it, its due time and its sequence.
+    fn next_due(&self, until: u64) -> Option<(Vec<String>, u64, u64)> {
+        let mut pending = Vec::new();
+        pending_timers(&self.state, &mut Vec::new(), &mut pending);
+        pending
+            .into_iter()
+            .filter(|(_, due_ms, _)| *due_ms <= until)
+            .min_by_key(|(_, due_ms, sequence)| (*due_ms, *sequence))
+    }
+
+    /// Fires the timer scheduled at `sequence` in the session `path` names,
+    /// each session on the way drained after it.
+    fn fire_at(&mut self, path: &[String], sequence: u64) {
+        let Some((invoke_id, rest)) = path.split_first() else {
+            let Some(position) = self
+                .state
+                .timers
+                .iter()
+                .position(|timer| timer.sequence == sequence)
+            else {
+                return;
+            };
+            let timer = self.state.timers.remove(position);
+            self.count_fire(&timer);
+            let effects = self.route(timer.send, false);
+            self.perform(effects);
+            self.drain();
+            return;
+        };
+        self.within(invoke_id, |child| child.fire_at(rest, sequence));
+        self.drain();
     }
 
     /// Takes the external queue one event per macrostep while the chart
-    /// runs and the driver is not halted. A counted event the budget has no
-    /// room for is left queued, and the driver halts.
+    /// runs and the driver is not halted, and, once it is empty, the
+    /// mailbox one entry at a time. A counted entry the budget has no room
+    /// for is left where it waits, and the driver halts.
     fn drain(&mut self) {
         while self.state.core.running && !self.state.halted {
-            let Some(queued) = self.external.pop_front() else {
-                return;
-            };
-            if queued.counted {
-                let taken = self.taken.saturating_add(1);
-                if !self.state.round_budget.admits(taken) {
+            if let Some(queued) = self.external.pop_front() {
+                if queued.counted && !self.count_taken() {
                     self.external.push_front(queued);
                     self.halt();
                     return;
                 }
-                self.taken = taken;
+                self.take(queued.event);
+                continue;
             }
-            if let Ok(stepped) = interpreter::handle_event(&self.state.core, &queued.event) {
-                self.state.core = stepped.state;
-                self.perform(stepped.effects);
+            let Some((mail, counted)) = self.mailbox.pop_front() else {
+                return;
+            };
+            if counted && !self.count_taken() {
+                self.mailbox.push_front((mail, counted));
+                self.halt();
+                return;
             }
+            self.take_mail(mail);
         }
+    }
+
+    /// Counts one more counted entry taken, answering whether the budget
+    /// had room for it.
+    fn count_taken(&mut self) -> bool {
+        let taken = self.taken.saturating_add(1);
+        if !self.state.round_budget.admits(taken) {
+            return false;
+        }
+        self.taken = taken;
+        true
+    }
+
+    /// One external event, one macrostep, with the routes the session can
+    /// reach declared to the interpreter as the event arrives.
+    fn take(&mut self, event: Event) {
+        self.stamp();
+        if let Ok(stepped) = interpreter::handle_event(&self.state.core, &event) {
+            self.state.core = stepped.state;
+            self.taking = Some(event);
+            self.perform(stepped.effects);
+            self.taking = None;
+        }
+    }
+
+    /// The routes the session can reach now, declared to the interpreter:
+    /// itself, its parent when it has one, and its live invocations.
+    fn stamp(&mut self) {
+        self.state.core.routes = Some(Routes {
+            sessions: BTreeSet::from([self.state.session_id.clone()]),
+            parent: self.state.invoked_as.is_some(),
+            invokes: self.state.invocations.keys().cloned().collect(),
+        });
     }
 
     /// The clock has moved on to a later virtual time: the call's three
@@ -698,12 +878,25 @@ impl Call {
     fn perform(&mut self, effects: Vec<Effect>) {
         let mut batch = effects;
         while !batch.is_empty() {
+            self.announce(&batch);
             let mut deferred = Vec::new();
             for effect in batch {
+                self.effects.push(self.report(effect.clone()));
                 deferred.extend(self.perform_one(&effect));
-                self.effects.push(effect);
             }
             batch = deferred;
+        }
+    }
+
+    /// `effect` as the call answers it: an invoked child's wrapped in an
+    /// [`Effect::Child`] naming the child.
+    fn report(&self, effect: Effect) -> Effect {
+        match self.state.invoked_as {
+            Some(_) => Effect::Child {
+                session_id: self.state.session_id.clone(),
+                effect: Box::new(effect),
+            },
+            None => effect,
         }
     }
 
@@ -761,6 +954,26 @@ impl Call {
                 });
                 self.state.timers.clear();
                 self.external.clear();
+                self.mailbox.clear();
+                self.state.invocations.clear();
+                self.return_done(donedata.clone().unwrap_or(Value::Undefined));
+                Vec::new()
+            }
+            Effect::Invoke {
+                invoke_id,
+                invoke_type,
+                params,
+                content,
+                ..
+            } => self.start_child(invoke_id, invoke_type.as_ref(), params, content.as_ref()),
+            Effect::CancelInvoke { invoke_id, .. } => {
+                self.cancel_child(invoke_id);
+                Vec::new()
+            }
+            Effect::Autoforward { invoke_id, .. } => {
+                if let Some(event) = self.taking.clone() {
+                    self.deliver(invoke_id, event);
+                }
                 Vec::new()
             }
             Effect::BudgetExhausted { .. } => {
@@ -814,6 +1027,18 @@ impl Call {
             Route::Own => self.enqueue_own(send.event, immediate),
             Route::Session(id) if id == self.state.session_id => {
                 self.enqueue_own(send.event, immediate)
+            }
+            Route::Parent if self.state.invoked_as.is_some() => {
+                if !self.state.halted || immediate {
+                    self.post_to_parent(send.event, immediate);
+                }
+                Vec::new()
+            }
+            Route::Invoke(id) if self.state.invocations.contains_key(&id) => {
+                if !self.state.halted || immediate {
+                    self.deliver(&id, send.event);
+                }
+                Vec::new()
             }
             Route::Internal => {
                 let mut event = send.event;
@@ -869,6 +1094,7 @@ impl Call {
             self.state.core.enqueue(event);
             return Vec::new();
         }
+        self.stamp();
         match interpreter::deliver_internal(&self.state.core, event) {
             Ok(stepped) => {
                 self.state.core = stepped.state;
@@ -895,5 +1121,21 @@ impl Call {
             &self.state.core,
             self.state.round_budget.spent(),
         )]
+    }
+}
+
+/// Every pending timer of the tree under `state`, each with the path to its
+/// session, its due time and its sequence.
+fn pending_timers(state: &State, path: &mut Vec<String>, out: &mut Vec<(Vec<String>, u64, u64)>) {
+    out.extend(
+        state
+            .timers
+            .iter()
+            .map(|timer| (path.clone(), timer.due_ms, timer.sequence)),
+    );
+    for (invoke_id, invocation) in &state.invocations {
+        path.push(invoke_id.clone());
+        pending_timers(&invocation.child, path, out);
+        path.pop();
     }
 }

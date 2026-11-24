@@ -157,15 +157,14 @@ pub(crate) struct MachineState {
     pub(crate) entered_states: BTreeSet<usize>,
     /// The send and timer counters.
     pub(crate) sends: Sends,
-    /// The states whose `<invoke>` elements have yet to start. Invoke has
-    /// not arrived, so only an imported position fills it, and it is
-    /// carried to the next export unread.
+    /// The states entered since the last invoke pass, whose `<invoke>`
+    /// elements have yet to start; a state that exits leaves it.
     pub(crate) states_to_invoke: BTreeSet<usize>,
     /// The live invocations, by the index of their state and of the
-    /// `<invoke>` among its own, to the invoke id. Carried as
-    /// `states_to_invoke` is.
+    /// `<invoke>` among its own, to the invoke id; a state that exits
+    /// cancels its own.
     pub(crate) active_invocations: BTreeMap<(usize, u64), String>,
-    /// The last invoke id's number. Carried as `states_to_invoke` is.
+    /// The last generated invoke id's number.
     pub(crate) invoke_counter: u64,
     /// The send types the host registered a processor for.
     pub(crate) send_types: BTreeSet<String>,

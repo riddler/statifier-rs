@@ -23,6 +23,7 @@ mod content;
 mod entering;
 mod event_loop;
 mod exit_entry;
+mod invoke;
 mod machine_state;
 mod name_match;
 mod selection;
@@ -32,7 +33,8 @@ mod step;
 mod tests;
 
 pub(crate) use content::{Counters, Route, Routes, Sends, parse_target};
-pub(crate) use event_loop::{budget_exhausted, deliver_internal, handle_event, initialize};
+pub(crate) use event_loop::{budget_exhausted, cancel, deliver_internal, handle_event, initialize};
+pub(crate) use invoke::is_scxml_type;
 pub(crate) use machine_state::{Event, MachineState, RoundBudget, StartOptions, Status};
 
 use crate::machine::Chart;

@@ -100,19 +100,34 @@ pub use refusal::{
 /// # Ok::<(), Vec<statifier::Refusal>>(())
 /// ```
 pub fn compile(source: &str) -> Result<Machine, Vec<Refusal>> {
+    compile_with(source, validator::Options::default())
+}
+
+/// Compiles an invocation's inline `<content>` markup as the reference's
+/// `Statifier.Invoke.Source` compiles it, a root with no namespace accepted;
+/// `None` when any stage refuses it.
+pub(crate) fn compile_inline(source: &str) -> Option<Machine> {
+    compile_with(
+        source,
+        validator::Options {
+            invoke_content_markup: true,
+        },
+    )
+    .ok()
+}
+
+fn compile_with(source: &str, options: validator::Options) -> Result<Machine, Vec<Refusal>> {
     let root = xml::parse(source.as_bytes()).map_err(|error| vec![Refusal::from(error)])?;
     let document = lowering::lower(&root, source)
         .map_err(|errors| errors.into_iter().map(Refusal::from).collect::<Vec<_>>())?;
     drop(root);
-    let warnings = validator::validate(&document, source, validator::Options::default()).map_err(
-        |refused| {
-            refused
-                .errors
-                .into_iter()
-                .map(Refusal::from)
-                .collect::<Vec<_>>()
-        },
-    )?;
+    let warnings = validator::validate(&document, source, options).map_err(|refused| {
+        refused
+            .errors
+            .into_iter()
+            .map(Refusal::from)
+            .collect::<Vec<_>>()
+    })?;
     let warnings = warnings.into_iter().map(Warning::from).collect();
     compiler::compile(&document, warnings).map(Machine::new)
 }
