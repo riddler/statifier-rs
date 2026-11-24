@@ -198,6 +198,14 @@ pub struct Options {
     /// child inherits the entries with the types, each written for the
     /// child's own session.
     pub ioprocessors: BTreeMap<String, IoProcessorEntry>,
+    /// The registered send types a `<send>` must name a target for. A send
+    /// of one of them with no target is still answered as an effect, and
+    /// the sending session then takes `error.communication`, carrying the
+    /// send's id, onto its internal queue and runs to a stable
+    /// configuration, as it takes an event a send delivers there; delayed or
+    /// not, nothing waits. A name [`Options::send_types`] does not register
+    /// has no effect. An invoked child inherits the set.
+    pub target_required: BTreeSet<String>,
     /// The round budget of each macrostep, and of the two counts one call
     /// spends it on.
     pub round_budget: RoundBudget,
@@ -209,14 +217,16 @@ pub struct Options {
 
 impl Options {
     /// The options for a session with this id, and every other field at its
-    /// default: no starting values, no registered send type and no entry,
-    /// the default round budget and no trace.
+    /// default: no starting values, no registered send type, no entry and
+    /// no type that requires a target, the default round budget and no
+    /// trace.
     pub fn new(session_id: impl Into<String>) -> Self {
         Options {
             session_id: session_id.into(),
             datamodel: Map::new(),
             send_types: BTreeSet::new(),
             ioprocessors: BTreeMap::new(),
+            target_required: BTreeSet::new(),
             round_budget: RoundBudget::default(),
             trace: false,
         }
@@ -448,6 +458,9 @@ pub struct State {
     /// The host's `_ioprocessors` entries, by type, which an invoked child
     /// inherits; empty for a state imported from a position.
     ioprocessors: BTreeMap<String, IoProcessorEntry>,
+    /// The registered types a send must name a target for, which an invoked
+    /// child inherits; empty for a state imported from a position.
+    target_required: BTreeSet<String>,
     round_budget: RoundBudget,
     trace: bool,
     now_ms: u64,
@@ -506,6 +519,7 @@ impl State {
         core: MachineState,
         session_id: String,
         ioprocessors: BTreeMap<String, IoProcessorEntry>,
+        target_required: BTreeSet<String>,
         round_budget: RoundBudget,
         trace: bool,
     ) -> Self {
@@ -513,6 +527,7 @@ impl State {
             core,
             session_id,
             ioprocessors,
+            target_required,
             round_budget,
             trace,
             now_ms: 0,
@@ -582,6 +597,7 @@ impl Machine {
             started.state,
             options.session_id,
             options.ioprocessors,
+            options.target_required,
             options.round_budget,
             options.trace,
         ));
@@ -740,13 +756,26 @@ impl State {
         Ok((path, sender, send))
     }
 
-    /// The id of the session that made a send handed to the host, and the
-    /// bare send, refused as [`State::report_send_failed`] refuses an
-    /// effect that is not one.
+    /// The session that made a send handed to the host, and the bare send,
+    /// refused as [`State::report_send_failed`] refuses an effect that is
+    /// not one.
     #[cfg(feature = "basichttp")]
-    pub(crate) fn handed_send<'a>(&self, send: &'a Effect) -> Result<(&str, &'a Effect), Error> {
+    pub(crate) fn handed_send<'a>(&self, send: &'a Effect) -> Result<(&State, &'a Effect), Error> {
         let (_, sender, send) = self.handed(send)?;
-        Ok((sender.session_id.as_str(), send))
+        Ok((sender, send))
+    }
+
+    /// The session's id.
+    #[cfg(feature = "basichttp")]
+    pub(crate) fn session_id(&self) -> &str {
+        &self.session_id
+    }
+
+    /// Whether a send of `send_type` this session makes must name a target
+    /// ([`Options::target_required`]).
+    pub(crate) fn requires_target(&self, send_type: Option<&Value>) -> bool {
+        matches!(send_type, Some(Value::String(send_type))
+            if self.core.send_types.contains(send_type) && self.target_required.contains(send_type))
     }
 
     /// The invoke ids from this session down to the live session named
@@ -1203,6 +1232,22 @@ impl Call {
                 });
                 self.state.sequence = self.state.sequence.saturating_add(1);
                 Vec::new()
+            }
+            Effect::Send {
+                target: None,
+                send_type,
+                send_id,
+                ..
+            }
+            | Effect::SendDelayed {
+                target: None,
+                send_type,
+                send_id,
+                ..
+            } if self.state.requires_target(send_type.as_ref()) => {
+                let mut event = Event::platform("error.communication", Value::Undefined);
+                event.sendid = Some(send_id.clone());
+                self.deliver_internal(event)
             }
             Effect::Cancel { send_id, .. } => {
                 if let Value::String(send_id) = send_id {

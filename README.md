@@ -209,7 +209,11 @@ the host supplies in `Options::ioprocessors`, by type: an
 `location` is the address, `/` and the session's id, so an invoked child's
 entry names the child. A registered type with no entry there has an empty
 map, and an entry for a type not registered is refused with
-`Error::UnregisteredEntries`.
+`Error::UnregisteredEntries`. A registered type the host lists in
+`Options::target_required` must name a target: a send of it with none is
+still answered as an effect, and the sending session then takes
+`error.communication`, carrying the send's id, once the macrostep that made
+the send is done, delayed or not.
 
 ```rust
 use statifier::{Effect, Options};
@@ -253,17 +257,23 @@ client it already has, and passes it to each call that sends.
 - `basichttp::register(options, base_address)` registers the processor
   under its URI (`basichttp::URI`) and its short form (`basichttp`), each
   with the `_ioprocessors` entry whose `location` is the base address the
-  host's front answers at, `/` and the session's id.
+  host's front answers at, `/` and the session's id. Both spellings are
+  listed in `Options::target_required`, so a send of either with no target
+  raises `error.communication` in the sending session, as the reference's
+  processor raises it, before the session takes another external event.
 - `basichttp::deliver(&state, &send, &transport)` takes a send of either
   spelling the driver handed the host (bare, or inside the `Effect::Child`
   that carried a child's), builds the request the reference builds and
   hands it to the transport once. A 2xx response is
-  `Delivery::Delivered`. A send with no target (no request is made), a
-  transport error, and any other status, one outside 100 to 599 included,
-  are `Delivery::Missed`: the miss is reported with
-  `State::report_send_failed`, and the delivery carries the report's new
-  state, or none when the sending session has stopped or halted. A delayed
-  send is delivered when the host calls, once its delay has passed.
+  `Delivery::Delivered`. A transport error and any other status, one
+  outside 100 to 599 included, are `Delivery::Missed`: the miss is
+  reported with `State::report_send_failed`, and the delivery carries the
+  report's new state, or none when the sending session has stopped or
+  halted. A send with no target is `Delivery::Missed` with no request and
+  no report, the driver having raised it already; for a host that took the
+  type out of `Options::target_required`, it is reported like the others.
+  A delayed send is delivered when the host calls, once its delay has
+  passed.
 - The request is a `POST` to the send's target. Data that is a map, the
   `namelist` and `<param>` values or a `<content>` that is a map, is an
   `application/x-www-form-urlencoded` body: `_scxmleventname` first, then
@@ -666,7 +676,9 @@ It differs in these parts of a position, the reference's
   again from its own options. The imported state keeps the entries its
   datamodel carries, but holds none of the host's `Options::ioprocessors`,
   so a child it starts has an empty entry for each type; the reference's
-  child asks each processor again for its own session.
+  child asks each processor again for its own session. Nor does it hold
+  `Options::target_required`, so a send with no target from an imported
+  state is handed to the host, and `basichttp::deliver` reports it.
 - With the `serde` feature, a JSON position missing a key or holding a
   value of the wrong shape is refused by the deserializer, naming the
   first it meets; the reference names every missing key at once.
@@ -677,8 +689,20 @@ It differs in these parts of a position, the reference's
   the reader refuses a negative one, and one above the 64-bit signed range
   too, since every value is read through the predicator crate's reader.
 
-It differs in these parts of the Basic HTTP Event I/O Processor (the
-`basichttp` feature), none of which any corpus document holds:
+It differs in this part of the Basic HTTP Event I/O Processor (the
+`basichttp` feature), which a corpus document holds:
+
+- A send the host loops back to the session (a send to the session's own
+  Basic HTTP location, delivered and decoded by the host) reaches the
+  chart only once the call that made it has returned, so an event the
+  chart sent itself in the same call is taken first. The w3c case
+  `test201` sends itself `event1` through the processor, then `timeout`
+  with no target, and passes only when `event1` comes first: here the
+  chart takes `timeout` first and ends in `fail`. The reference does not
+  claim `test201` either.
+
+It differs in these parts of the Basic HTTP Event I/O Processor, none of
+which any corpus document holds:
 
 - A map of more than 32 members is written in key order, as a smaller one
   is, whether form fields or JSON text; the reference's runtime walks such
@@ -690,8 +714,13 @@ It differs in these parts of the Basic HTTP Event I/O Processor (the
   float that is not finite as `null`; a date as a whole parameter is its
   tagged encoding too. The reference writes its runtime's inspect text,
   such as `[1, ~D[2026-08-06]]`.
-- A target or an event name that is not a string is written as text by
-  the parameter rule; the reference's processor fails on one.
+- A target that is not a string is written as text by the parameter rule;
+  the reference hands it to its transport unchanged for a form body, and
+  fails building a text body's address.
+- An event name that is a list or a map is written as JSON text; the
+  reference's processor fails on one. Every other value follows the
+  reference: `false` sends no `_scxmleventname`, undefined sends the word
+  `undefined`, and a number or `true` its literal.
 - The event a host steps carries no `origintype`, since `State::step` takes
   a name and data alone, so `_event.origintype` reads undefined; the
   reference's decoded event carries the processor's URI.

@@ -5,6 +5,7 @@
 - `basichttp::decode`, which reads a request a host's front received into a `basichttp::Received`, the name and data of an external event for `State::step`, or refuses it with a `basichttp::DecodeError` naming a method other than `POST`, a part that is not UTF-8 (`basichttp::Part`), or a malformed send key.
 - `IoProcessorEntry` and `Options::ioprocessors`, the `_ioprocessors` entry a host supplies for each registered send type: a fixed map, or a base address whose `location` names each session, an invoked child's included.
 - `Error::UnregisteredEntries`, answered by `Machine::start` for an entry whose type the options do not register.
+- `Options::target_required`, the registered send types a `<send>` must name a target for: a send of one with none is still answered as an effect, and the sending session then takes `error.communication` carrying the send's id once its macrostep is done. `basichttp::register` lists both of the processor's spellings.
 
 ### Changed
 

@@ -12,8 +12,10 @@
 //! - [`deliver`] takes one send of either spelling the driver handed the
 //!   host, encodes it as the reference encodes it and hands the request to
 //!   the host's [`Transport`], passed per call and never kept. A transport
-//!   error, a status outside 2xx, or a send with no target, is reported to
-//!   the chart as [`State::report_send_failed`] reports it.
+//!   error or a status outside 2xx is reported to the chart as
+//!   [`State::report_send_failed`] reports it; a send with no target the
+//!   driver has already answered with `error.communication` in the sending
+//!   session, as the reference does.
 //! - [`decode`] reads a request the host's front received into the name and
 //!   data of an external event, which the host passes to [`State::step`].
 //!
@@ -90,9 +92,11 @@ pub const SHORT_FORM: &str = "basichttp";
 /// `options` with the processor registered under [`URI`] and
 /// [`SHORT_FORM`], each with the `_ioprocessors` entry
 /// [`IoProcessorEntry::SessionLocation`] writes from `base_address`: a
-/// `location` that is the address, `/` and the session's id. Any entry
-/// `options` already gives either spelling is replaced; nothing else
-/// changes.
+/// `location` that is the address, `/` and the session's id. Both
+/// spellings are listed in [`Options::target_required`], so a send of
+/// either with no target raises `error.communication` in the sending
+/// session as the reference's processor raises it. Any entry `options`
+/// already gives either spelling is replaced; nothing else changes.
 ///
 /// ```
 /// use statifier::basichttp;
@@ -109,6 +113,7 @@ pub fn register(options: Options, base_address: &str) -> Options {
     let mut options = options;
     for send_type in [URI, SHORT_FORM] {
         options.send_types.insert(send_type.to_owned());
+        options.target_required.insert(send_type.to_owned());
         options.ioprocessors.insert(
             send_type.to_owned(),
             IoProcessorEntry::SessionLocation(base_address.to_owned()),
@@ -136,7 +141,9 @@ pub enum Delivery {
         miss: Miss,
         /// The report: the new state and the effects it produced, boxed. `None`
         /// when the sending session takes no report, having stopped or
-        /// been halted by a spent round budget since it made the send.
+        /// been halted by a spent round budget since it made the send, and
+        /// for a send with no target the driver already raised the miss for
+        /// ([`Options::target_required`]).
         moved: Option<Box<Moved>>,
     },
 }
@@ -203,6 +210,11 @@ impl fmt::Display for Miss {
 /// a transport error, and a response whose status is outside 2xx answer
 /// [`Delivery::Missed`]: the miss is reported with
 /// [`State::report_send_failed`], whose new state the delivery carries.
+/// A send with no target whose type the sending session lists in
+/// [`Options::target_required`], as [`register`] lists both spellings, is
+/// the exception: the driver raised its `error.communication` itself, when
+/// the send was made, so it is answered missed with no report and nothing
+/// moved.
 ///
 /// Refused, with nothing requested, as [`State::report_send_failed`]
 /// refuses an effect that is not a send handed to the host, and with
@@ -212,17 +224,25 @@ pub fn deliver(
     send: &Effect,
     transport: &dyn Transport,
 ) -> Result<Delivery, crate::Error> {
-    let (session_id, bare) = state.handed_send(send)?;
-    let ours = match bare {
+    let (sender, bare) = state.handed_send(send)?;
+    let send_type = match bare {
         Effect::Send { send_type, .. } | Effect::SendDelayed { send_type, .. } => {
-            matches!(send_type, Some(Value::String(send_type)) if send_type == URI || send_type == SHORT_FORM)
+            send_type.as_ref()
         }
-        _ => false,
+        _ => None,
     };
-    if !ours {
+    if !matches!(send_type, Some(Value::String(send_type)) if send_type == URI || send_type == SHORT_FORM)
+    {
         return Err(crate::Error::NotAHandedSend);
     }
-    let miss = match encode::request(session_id, bare) {
+    let miss = match encode::request(sender.session_id(), bare) {
+        // The driver already raised the miss in the sending session.
+        None if sender.requires_target(send_type) => {
+            return Ok(Delivery::Missed {
+                miss: Miss::NoTarget,
+                moved: None,
+            });
+        }
         None => Miss::NoTarget,
         Some(request) => match transport.send(request) {
             Ok(response) if (200..=299).contains(&response.status) => {

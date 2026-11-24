@@ -468,3 +468,41 @@ fn a_send_with_no_target_has_no_request() {
         Some("7".to_owned())
     );
 }
+
+// The event name follows the reference's rule: named when its value is
+// truthy, an undefined one written as the word, a false one left out. The
+// reference build answered each row the same. Sabotage: with a false event
+// named like any other value, the first row reads `_scxmleventname=false`.
+#[test]
+fn the_event_name_is_left_out_only_when_false() {
+    let with_event = |event: Value, data: Value| {
+        let mut sent = send(None, Some("http://h/s"), data);
+        if let Effect::Send { event: slot, .. } = &mut sent {
+            *slot = Some(event);
+        }
+        let (address, _, body) = encoded(&sent);
+        (address, body)
+    };
+    let form = |event: Value| with_event(event, Value::Undefined).1;
+    assert_eq!(form(Value::from(false)), "");
+    assert_eq!(form(Value::Undefined), "_scxmleventname=undefined");
+    assert_eq!(form(Value::from(true)), "_scxmleventname=true");
+    assert_eq!(form(Value::from(5)), "_scxmleventname=5");
+    assert_eq!(form(Value::from(1.5)), "_scxmleventname=1.5");
+    assert_eq!(
+        with_event(Value::from(false), Value::from("c")),
+        ("http://h/s".to_owned(), "c".to_owned())
+    );
+    assert_eq!(
+        with_event(Value::Undefined, Value::from("c")),
+        (
+            "http://h/s?_scxmleventname=undefined".to_owned(),
+            "c".to_owned()
+        )
+    );
+    // This crate's own row: the reference's processor fails on a list.
+    assert_eq!(
+        form(Value::List(vec![Value::from(1), Value::from(2)])),
+        "_scxmleventname=%5B1%2C2%5D"
+    );
+}
