@@ -21,6 +21,42 @@ use predicator_rs::Map;
 /// variants and fields, so a host matches with a wildcard arm and binds
 /// fields with `..`.
 ///
+/// # What a host does with each effect
+///
+/// Every effect a call made is in its answer ([`Moved::effects`](crate::Moved::effects)), in the
+/// order the chart made it, the ones the driver has already acted on
+/// included. A host acts on these and may only record the rest:
+///
+/// | Effect | What the host does |
+/// |---|---|
+/// | [`Effect::Send`] | For a type it registered ([`Options::send_types`](crate::Options::send_types)): delivers the message now, and reports a delivery it could not make with [`State::report_send_failed`](crate::State::report_send_failed). Any other type the driver has already routed. |
+/// | [`Effect::SendDelayed`] | For a type it registered: keeps its own timer, delivers the message once `delay_ms` has passed unless an [`Effect::Cancel`] names its `send_id` first, and reports a delivery it could not make as for a send. Any other type the driver keeps as a pending timer on its virtual clock ([`State::next_due_ms`](crate::State::next_due_ms), [`State::advance`](crate::State::advance)). |
+/// | [`Effect::Cancel`] | Drops a delayed send of a registered type it still holds under `send_id`. The driver drops its own timer by that id. |
+/// | [`Effect::Invoke`], [`Effect::CancelInvoke`], [`Effect::Autoforward`] | Records them: the driver starts, stops and forwards to an SCXML child session itself, and raises `error.execution` in the chart for any other type. |
+/// | [`Effect::Log`] | Writes the label and the value wherever it keeps logs: the crate writes nothing. |
+/// | [`Effect::DatamodelInit`], [`Effect::DatamodelChange`] | Keeps a copy of the datamodel, if it wants one: the init is the base, and each change is applied to it in order. |
+/// | [`Effect::Done`] | Takes the chart as stopped: [`State::done`](crate::State::done) answers its donedata and configuration, a later [`State::step`](crate::State::step) answers [`Error::NotRunning`](crate::Error::NotRunning), and [`State::advance`](crate::State::advance) only moves the clock. |
+/// | [`Effect::BudgetExhausted`] | Takes the chart as halted, still running where the last round left it: a later [`State::report_send_failed`](crate::State::report_send_failed) answers [`Error::Halted`](crate::Error::Halted). |
+/// | [`Effect::Child`] | Reads the effect it wraps as above, for the invoked child session `session_id` names; a send of a registered type in it is reported with the `Child` effect itself. |
+///
+/// An error the chart raises (`error.execution` or `error.communication`)
+/// is not an effect: it is an event on the chart's internal
+/// queue, which the chart's own transitions take. A refusal of the call
+/// itself is the call's [`Error`](crate::Error).
+///
+/// # The reference's vocabulary
+///
+/// Each variant is the reference's effect of the same name in snake case
+/// (`Statifier.Effect` in statifier-ex, its `core` effects), field for field,
+/// apart from these spellings: the reference's `c_index` is `content_index`
+/// here, its `d_index` is `data_index`, its `type` (a Rust keyword) is
+/// `send_type` on a send and `invoke_type` on an invoke, and its
+/// `id_from_author?` is `id_from_author`. The reference's `caller_context`,
+/// on its delayed send, cancel, invoke and cancelled invocation, is not
+/// carried, and none of its ten trace effects is ported. [`Effect::Child`]
+/// has no counterpart: the reference's child session is a process of its
+/// own.
+///
 /// ```
 /// use statifier::Effect;
 ///

@@ -1,0 +1,861 @@
+# The public items of the crate with every feature on, one per line,
+# sorted: built by `mise run surface:write` from `cargo doc --no-deps
+# --all-features` on the toolchain mise.toml pins, and compared with a
+# listing built the same way by `mise run gate:surface`, a stage of the
+# full gate. A change to the public surface changes this file in the same
+# commit. Lines starting with `#` are not compared.
+const statifier::basichttp::SHORT_FORM
+const statifier::basichttp::URI
+enum statifier::BlockOwner
+enum statifier::CompileReason
+enum statifier::DefaultTransitionOwner
+enum statifier::Effect
+enum statifier::Error
+enum statifier::ExportError
+enum statifier::ImportError
+enum statifier::IoProcessorEntry
+enum statifier::Key
+enum statifier::LoweringReason
+enum statifier::PathSegment
+enum statifier::ReadReason
+enum statifier::Reason
+enum statifier::RoundBudget
+enum statifier::Status
+enum statifier::ValidationReason
+enum statifier::Value
+enum statifier::WarningReason
+enum statifier::basichttp::DecodeError
+enum statifier::basichttp::Delivery
+enum statifier::basichttp::Miss
+enum statifier::basichttp::Part
+fn statifier::basichttp::decode
+fn statifier::basichttp::deliver
+fn statifier::basichttp::register
+fn statifier::compile
+mod statifier::basichttp
+statifier::AcceptsCheck: #[non_exhaustive]
+statifier::AcceptsCheck: field undeclared: Vec<String>
+statifier::AcceptsCheck: field unreachable: Vec<String>
+statifier::AcceptsCheck: impl Clone for AcceptsCheck
+statifier::AcceptsCheck: impl Debug for AcceptsCheck
+statifier::AcceptsCheck: impl Default for AcceptsCheck
+statifier::AcceptsCheck: impl Eq for AcceptsCheck
+statifier::AcceptsCheck: impl Hash for AcceptsCheck
+statifier::AcceptsCheck: impl PartialEq for AcceptsCheck
+statifier::AcceptsCheck: impl RefUnwindSafe for AcceptsCheck
+statifier::AcceptsCheck: impl Send for AcceptsCheck
+statifier::AcceptsCheck: impl StructuralPartialEq for AcceptsCheck
+statifier::AcceptsCheck: impl Sync for AcceptsCheck
+statifier::AcceptsCheck: impl Unpin for AcceptsCheck
+statifier::AcceptsCheck: impl UnwindSafe for AcceptsCheck
+statifier::ActiveInvocation: #[non_exhaustive]
+statifier::ActiveInvocation: field invoke_id: String
+statifier::ActiveInvocation: field invoke_index: u64
+statifier::ActiveInvocation: field state: String
+statifier::ActiveInvocation: impl Clone for ActiveInvocation
+statifier::ActiveInvocation: impl Debug for ActiveInvocation
+statifier::ActiveInvocation: impl Eq for ActiveInvocation
+statifier::ActiveInvocation: impl Hash for ActiveInvocation
+statifier::ActiveInvocation: impl Ord for ActiveInvocation
+statifier::ActiveInvocation: impl PartialEq for ActiveInvocation
+statifier::ActiveInvocation: impl PartialOrd for ActiveInvocation
+statifier::ActiveInvocation: impl RefUnwindSafe for ActiveInvocation
+statifier::ActiveInvocation: impl Send for ActiveInvocation
+statifier::ActiveInvocation: impl Serialize for ActiveInvocation
+statifier::ActiveInvocation: impl StructuralPartialEq for ActiveInvocation
+statifier::ActiveInvocation: impl Sync for ActiveInvocation
+statifier::ActiveInvocation: impl Unpin for ActiveInvocation
+statifier::ActiveInvocation: impl UnwindSafe for ActiveInvocation
+statifier::ActiveInvocation: impl<'de> Deserialize<'de> for ActiveInvocation
+statifier::ActiveInvocation: pub fn new(state: impl Into<String>, invoke_index: u64, invoke_id: impl Into<String>) -> Self
+statifier::BlockOwner: #[non_exhaustive]
+statifier::BlockOwner: impl Clone for BlockOwner
+statifier::BlockOwner: impl Copy for BlockOwner
+statifier::BlockOwner: impl Debug for BlockOwner
+statifier::BlockOwner: impl Eq for BlockOwner
+statifier::BlockOwner: impl Hash for BlockOwner
+statifier::BlockOwner: impl PartialEq for BlockOwner
+statifier::BlockOwner: impl RefUnwindSafe for BlockOwner
+statifier::BlockOwner: impl Send for BlockOwner
+statifier::BlockOwner: impl Serialize for BlockOwner
+statifier::BlockOwner: impl StructuralPartialEq for BlockOwner
+statifier::BlockOwner: impl Sync for BlockOwner
+statifier::BlockOwner: impl Unpin for BlockOwner
+statifier::BlockOwner: impl UnwindSafe for BlockOwner
+statifier::BlockOwner: impl<'de> Deserialize<'de> for BlockOwner
+statifier::BlockOwner: variant #[non_exhaustive] Finalize
+statifier::BlockOwner: variant #[non_exhaustive] Invoke
+statifier::BlockOwner: variant #[non_exhaustive] OnEntry
+statifier::BlockOwner: variant #[non_exhaustive] OnExit
+statifier::BlockOwner: variant #[non_exhaustive] Transition
+statifier::BlockOwner: variant Finalize field invoke: usize
+statifier::BlockOwner: variant Finalize field state: usize
+statifier::BlockOwner: variant Invoke field invoke: usize
+statifier::BlockOwner: variant Invoke field state: usize
+statifier::BlockOwner: variant OnEntry field ordinal: usize
+statifier::BlockOwner: variant OnEntry field state: usize
+statifier::BlockOwner: variant OnExit field ordinal: usize
+statifier::BlockOwner: variant OnExit field state: usize
+statifier::BlockOwner: variant Transition field transition: usize
+statifier::CompileReason: #[non_exhaustive]
+statifier::CompileReason: impl Clone for CompileReason
+statifier::CompileReason: impl Debug for CompileReason
+statifier::CompileReason: impl Eq for CompileReason
+statifier::CompileReason: impl PartialEq for CompileReason
+statifier::CompileReason: impl RefUnwindSafe for CompileReason
+statifier::CompileReason: impl Send for CompileReason
+statifier::CompileReason: impl StructuralPartialEq for CompileReason
+statifier::CompileReason: impl Sync for CompileReason
+statifier::CompileReason: impl Unpin for CompileReason
+statifier::CompileReason: impl UnwindSafe for CompileReason
+statifier::CompileReason: variant #[non_exhaustive] ExpressionCompileError
+statifier::CompileReason: variant ExpressionCompileError field cause: String
+statifier::CompileReason: variant ExpressionCompileError field position: Option<(usize, usize)>
+statifier::CompileReason: variant ExpressionCompileError field source: String
+statifier::DefaultTransitionOwner: #[non_exhaustive]
+statifier::DefaultTransitionOwner: impl Clone for DefaultTransitionOwner
+statifier::DefaultTransitionOwner: impl Debug for DefaultTransitionOwner
+statifier::DefaultTransitionOwner: impl Eq for DefaultTransitionOwner
+statifier::DefaultTransitionOwner: impl PartialEq for DefaultTransitionOwner
+statifier::DefaultTransitionOwner: impl RefUnwindSafe for DefaultTransitionOwner
+statifier::DefaultTransitionOwner: impl Send for DefaultTransitionOwner
+statifier::DefaultTransitionOwner: impl StructuralPartialEq for DefaultTransitionOwner
+statifier::DefaultTransitionOwner: impl Sync for DefaultTransitionOwner
+statifier::DefaultTransitionOwner: impl Unpin for DefaultTransitionOwner
+statifier::DefaultTransitionOwner: impl UnwindSafe for DefaultTransitionOwner
+statifier::DefaultTransitionOwner: variant History(Option<String>)
+statifier::DefaultTransitionOwner: variant Initial(Option<String>)
+statifier::Done: #[non_exhaustive]
+statifier::Done: field active_leaf_count: usize
+statifier::Done: field active_leaf_states: Vec<String>
+statifier::Done: field configuration: Vec<String>
+statifier::Done: field donedata: Value
+statifier::Done: impl Clone for Done
+statifier::Done: impl Debug for Done
+statifier::Done: impl PartialEq for Done
+statifier::Done: impl RefUnwindSafe for Done
+statifier::Done: impl Send for Done
+statifier::Done: impl Serialize for Done
+statifier::Done: impl StructuralPartialEq for Done
+statifier::Done: impl Sync for Done
+statifier::Done: impl Unpin for Done
+statifier::Done: impl UnwindSafe for Done
+statifier::Done: impl<'de> Deserialize<'de> for Done
+statifier::Effect: #[non_exhaustive]
+statifier::Effect: impl Clone for Effect
+statifier::Effect: impl Debug for Effect
+statifier::Effect: impl PartialEq for Effect
+statifier::Effect: impl RefUnwindSafe for Effect
+statifier::Effect: impl Send for Effect
+statifier::Effect: impl Serialize for Effect
+statifier::Effect: impl StructuralPartialEq for Effect
+statifier::Effect: impl Sync for Effect
+statifier::Effect: impl Unpin for Effect
+statifier::Effect: impl UnwindSafe for Effect
+statifier::Effect: impl<'de> Deserialize<'de> for Effect
+statifier::Effect: variant #[non_exhaustive] Autoforward
+statifier::Effect: variant #[non_exhaustive] BudgetExhausted
+statifier::Effect: variant #[non_exhaustive] Cancel
+statifier::Effect: variant #[non_exhaustive] CancelInvoke
+statifier::Effect: variant #[non_exhaustive] Child
+statifier::Effect: variant #[non_exhaustive] DatamodelChange
+statifier::Effect: variant #[non_exhaustive] DatamodelInit
+statifier::Effect: variant #[non_exhaustive] Done
+statifier::Effect: variant #[non_exhaustive] Invoke
+statifier::Effect: variant #[non_exhaustive] Log
+statifier::Effect: variant #[non_exhaustive] Send
+statifier::Effect: variant #[non_exhaustive] SendDelayed
+statifier::Effect: variant Autoforward field event: Value
+statifier::Effect: variant Autoforward field invoke_id: String
+statifier::Effect: variant Autoforward field macrostep: u64
+statifier::Effect: variant Autoforward field microstep: u64
+statifier::Effect: variant Autoforward field round: u64
+statifier::Effect: variant Autoforward field state_index: usize
+statifier::Effect: variant BudgetExhausted field budget: u64
+statifier::Effect: variant BudgetExhausted field configuration: Vec<usize>
+statifier::Effect: variant BudgetExhausted field macrostep: u64
+statifier::Effect: variant BudgetExhausted field microstep: u64
+statifier::Effect: variant BudgetExhausted field pending_internal_events: Vec<Value>
+statifier::Effect: variant BudgetExhausted field round: u64
+statifier::Effect: variant Cancel field content_index: usize
+statifier::Effect: variant Cancel field macrostep: u64
+statifier::Effect: variant Cancel field microstep: u64
+statifier::Effect: variant Cancel field ordinal: u64
+statifier::Effect: variant Cancel field owner: BlockOwner
+statifier::Effect: variant Cancel field round: u64
+statifier::Effect: variant Cancel field send_id: Value
+statifier::Effect: variant CancelInvoke field invoke_id: String
+statifier::Effect: variant CancelInvoke field macrostep: u64
+statifier::Effect: variant CancelInvoke field microstep: u64
+statifier::Effect: variant CancelInvoke field round: u64
+statifier::Effect: variant CancelInvoke field state_index: usize
+statifier::Effect: variant Child field effect: Box<Effect>
+statifier::Effect: variant Child field session_id: String
+statifier::Effect: variant DatamodelChange field content_index: Option<usize>
+statifier::Effect: variant DatamodelChange field data_index: Option<usize>
+statifier::Effect: variant DatamodelChange field location_path: Vec<PathSegment>
+statifier::Effect: variant DatamodelChange field location_source: String
+statifier::Effect: variant DatamodelChange field macrostep: u64
+statifier::Effect: variant DatamodelChange field microstep: u64
+statifier::Effect: variant DatamodelChange field new_value: Value
+statifier::Effect: variant DatamodelChange field owner: Option<BlockOwner>
+statifier::Effect: variant DatamodelChange field prior_value: Value
+statifier::Effect: variant DatamodelChange field round: u64
+statifier::Effect: variant DatamodelInit field datamodel: Map
+statifier::Effect: variant DatamodelInit field macrostep: u64
+statifier::Effect: variant DatamodelInit field microstep: u64
+statifier::Effect: variant DatamodelInit field round: u64
+statifier::Effect: variant Done field configuration: Vec<usize>
+statifier::Effect: variant Done field donedata: Option<Value>
+statifier::Effect: variant Done field donedata_error: Option<Value>
+statifier::Effect: variant Done field macrostep: u64
+statifier::Effect: variant Done field microstep: u64
+statifier::Effect: variant Done field round: u64
+statifier::Effect: variant Invoke field autoforward: bool
+statifier::Effect: variant Invoke field content: Option<Value>
+statifier::Effect: variant Invoke field invoke_id: String
+statifier::Effect: variant Invoke field invoke_index: usize
+statifier::Effect: variant Invoke field invoke_type: Option<Value>
+statifier::Effect: variant Invoke field macrostep: u64
+statifier::Effect: variant Invoke field microstep: u64
+statifier::Effect: variant Invoke field params: Value
+statifier::Effect: variant Invoke field round: u64
+statifier::Effect: variant Invoke field src: Option<Value>
+statifier::Effect: variant Invoke field state_index: usize
+statifier::Effect: variant Log field content_index: usize
+statifier::Effect: variant Log field label: Option<String>
+statifier::Effect: variant Log field macrostep: u64
+statifier::Effect: variant Log field microstep: u64
+statifier::Effect: variant Log field owner: BlockOwner
+statifier::Effect: variant Log field round: u64
+statifier::Effect: variant Log field value: Option<Value>
+statifier::Effect: variant Send field content_index: usize
+statifier::Effect: variant Send field data: Value
+statifier::Effect: variant Send field event: Option<Value>
+statifier::Effect: variant Send field id_from_author: bool
+statifier::Effect: variant Send field macrostep: u64
+statifier::Effect: variant Send field microstep: u64
+statifier::Effect: variant Send field ordinal: Option<u64>
+statifier::Effect: variant Send field owner: BlockOwner
+statifier::Effect: variant Send field round: u64
+statifier::Effect: variant Send field send_id: String
+statifier::Effect: variant Send field send_type: Option<Value>
+statifier::Effect: variant Send field target: Option<Value>
+statifier::Effect: variant SendDelayed field content_index: usize
+statifier::Effect: variant SendDelayed field data: Value
+statifier::Effect: variant SendDelayed field delay_ms: i64
+statifier::Effect: variant SendDelayed field event: Option<Value>
+statifier::Effect: variant SendDelayed field id_from_author: bool
+statifier::Effect: variant SendDelayed field macrostep: u64
+statifier::Effect: variant SendDelayed field microstep: u64
+statifier::Effect: variant SendDelayed field ordinal: u64
+statifier::Effect: variant SendDelayed field owner: BlockOwner
+statifier::Effect: variant SendDelayed field round: u64
+statifier::Effect: variant SendDelayed field send_id: String
+statifier::Effect: variant SendDelayed field send_type: Option<Value>
+statifier::Effect: variant SendDelayed field target: Option<Value>
+statifier::Error: #[non_exhaustive]
+statifier::Error: impl Clone for Error
+statifier::Error: impl Debug for Error
+statifier::Error: impl Display for Error
+statifier::Error: impl Eq for Error
+statifier::Error: impl Error for Error
+statifier::Error: impl PartialEq for Error
+statifier::Error: impl RefUnwindSafe for Error
+statifier::Error: impl Send for Error
+statifier::Error: impl StructuralPartialEq for Error
+statifier::Error: impl Sync for Error
+statifier::Error: impl Unpin for Error
+statifier::Error: impl UnwindSafe for Error
+statifier::Error: variant #[non_exhaustive] BuiltInSendTypes
+statifier::Error: variant #[non_exhaustive] InvalidDuration
+statifier::Error: variant #[non_exhaustive] UnregisteredEntries
+statifier::Error: variant BuiltInSendTypes field types: Vec<String>
+statifier::Error: variant Halted
+statifier::Error: variant InvalidDuration field ms: u64
+statifier::Error: variant NotAHandedSend
+statifier::Error: variant NotRunning
+statifier::Error: variant UnregisteredEntries field types: Vec<String>
+statifier::ExportError: #[non_exhaustive]
+statifier::ExportError: impl Clone for ExportError
+statifier::ExportError: impl Debug for ExportError
+statifier::ExportError: impl Display for ExportError
+statifier::ExportError: impl Eq for ExportError
+statifier::ExportError: impl Error for ExportError
+statifier::ExportError: impl PartialEq for ExportError
+statifier::ExportError: impl RefUnwindSafe for ExportError
+statifier::ExportError: impl Send for ExportError
+statifier::ExportError: impl StructuralPartialEq for ExportError
+statifier::ExportError: impl Sync for ExportError
+statifier::ExportError: impl Unpin for ExportError
+statifier::ExportError: impl UnwindSafe for ExportError
+statifier::ExportError: variant #[non_exhaustive] UnnameableStates
+statifier::ExportError: variant InternalQueueNotEmpty
+statifier::ExportError: variant UnnameableStates field indexes: Vec<usize>
+statifier::ImportError: #[non_exhaustive]
+statifier::ImportError: impl Clone for ImportError
+statifier::ImportError: impl Debug for ImportError
+statifier::ImportError: impl Display for ImportError
+statifier::ImportError: impl Eq for ImportError
+statifier::ImportError: impl Error for ImportError
+statifier::ImportError: impl PartialEq for ImportError
+statifier::ImportError: impl RefUnwindSafe for ImportError
+statifier::ImportError: impl Send for ImportError
+statifier::ImportError: impl StructuralPartialEq for ImportError
+statifier::ImportError: impl Sync for ImportError
+statifier::ImportError: impl Unpin for ImportError
+statifier::ImportError: impl UnwindSafe for ImportError
+statifier::ImportError: variant #[non_exhaustive] DuplicateInvocation
+statifier::ImportError: variant #[non_exhaustive] InvalidHistoryValue
+statifier::ImportError: variant #[non_exhaustive] UnknownInvoke
+statifier::ImportError: variant #[non_exhaustive] UnknownStateIds
+statifier::ImportError: variant DuplicateInvocation field invoke_index: u64
+statifier::ImportError: variant DuplicateInvocation field state: String
+statifier::ImportError: variant InvalidHistoryValue field history: String
+statifier::ImportError: variant NoSessionId
+statifier::ImportError: variant UnknownInvoke field invoke_index: u64
+statifier::ImportError: variant UnknownInvoke field state: String
+statifier::ImportError: variant UnknownStateIds field ids: Vec<String>
+statifier::IoProcessorEntry: #[non_exhaustive]
+statifier::IoProcessorEntry: impl Clone for IoProcessorEntry
+statifier::IoProcessorEntry: impl Debug for IoProcessorEntry
+statifier::IoProcessorEntry: impl PartialEq for IoProcessorEntry
+statifier::IoProcessorEntry: impl RefUnwindSafe for IoProcessorEntry
+statifier::IoProcessorEntry: impl Send for IoProcessorEntry
+statifier::IoProcessorEntry: impl StructuralPartialEq for IoProcessorEntry
+statifier::IoProcessorEntry: impl Sync for IoProcessorEntry
+statifier::IoProcessorEntry: impl Unpin for IoProcessorEntry
+statifier::IoProcessorEntry: impl UnwindSafe for IoProcessorEntry
+statifier::IoProcessorEntry: variant Fixed(Map)
+statifier::IoProcessorEntry: variant SessionLocation(String)
+statifier::Key: re-exported from another crate
+statifier::LoweringReason: #[non_exhaustive]
+statifier::LoweringReason: impl Clone for Reason
+statifier::LoweringReason: impl Debug for Reason
+statifier::LoweringReason: impl Eq for Reason
+statifier::LoweringReason: impl PartialEq for Reason
+statifier::LoweringReason: impl RefUnwindSafe for Reason
+statifier::LoweringReason: impl Send for Reason
+statifier::LoweringReason: impl StructuralPartialEq for Reason
+statifier::LoweringReason: impl Sync for Reason
+statifier::LoweringReason: impl Unpin for Reason
+statifier::LoweringReason: impl UnwindSafe for Reason
+statifier::LoweringReason: variant #[non_exhaustive] ForeignElement
+statifier::LoweringReason: variant #[non_exhaustive] MisplacedElement
+statifier::LoweringReason: variant #[non_exhaustive] MissingAttribute
+statifier::LoweringReason: variant #[non_exhaustive] NestingTooDeep
+statifier::LoweringReason: variant #[non_exhaustive] StrayText
+statifier::LoweringReason: variant #[non_exhaustive] UnexpectedAttribute
+statifier::LoweringReason: variant #[non_exhaustive] UnexpectedRoot
+statifier::LoweringReason: variant #[non_exhaustive] UnsupportedAttribute
+statifier::LoweringReason: variant #[non_exhaustive] UnsupportedElement
+statifier::LoweringReason: variant ForeignElement field name: String
+statifier::LoweringReason: variant ForeignElement field uri: String
+statifier::LoweringReason: variant MisplacedElement field name: String
+statifier::LoweringReason: variant MisplacedElement field parent: String
+statifier::LoweringReason: variant MissingAttribute field attribute: &'static str
+statifier::LoweringReason: variant MissingAttribute field element: &'static str
+statifier::LoweringReason: variant NestingTooDeep field name: String
+statifier::LoweringReason: variant StrayText field text: String
+statifier::LoweringReason: variant UnexpectedAttribute field attribute: String
+statifier::LoweringReason: variant UnexpectedAttribute field element: &'static str
+statifier::LoweringReason: variant UnexpectedRoot field name: String
+statifier::LoweringReason: variant UnsupportedAttribute field attribute: &'static str
+statifier::LoweringReason: variant UnsupportedAttribute field element: &'static str
+statifier::LoweringReason: variant UnsupportedElement field name: String
+statifier::Machine: impl Clone for Machine
+statifier::Machine: impl Debug for Machine
+statifier::Machine: impl RefUnwindSafe for Machine
+statifier::Machine: impl Send for Machine
+statifier::Machine: impl Sync for Machine
+statifier::Machine: impl Unpin for Machine
+statifier::Machine: impl UnwindSafe for Machine
+statifier::Machine: pub fn check_accepts(&self, declared: Option<&[&str]>) -> AcceptsCheck
+statifier::Machine: pub fn import_position(&self, position: &Position) -> Result<State, ImportError>
+statifier::Machine: pub fn start(&self, options: Options) -> Result<Moved, Error>
+statifier::Machine: pub fn warnings(&self) -> &[Warning]
+statifier::Map: re-exported from another crate
+statifier::Moved: #[non_exhaustive]
+statifier::Moved: field effects: Vec<Effect>
+statifier::Moved: field state: State
+statifier::Moved: impl Clone for Moved
+statifier::Moved: impl Debug for Moved
+statifier::Moved: impl RefUnwindSafe for Moved
+statifier::Moved: impl Send for Moved
+statifier::Moved: impl Sync for Moved
+statifier::Moved: impl Unpin for Moved
+statifier::Moved: impl UnwindSafe for Moved
+statifier::Options: #[non_exhaustive]
+statifier::Options: field datamodel: Map
+statifier::Options: field ioprocessors: BTreeMap<String, IoProcessorEntry>
+statifier::Options: field round_budget: RoundBudget
+statifier::Options: field send_types: BTreeSet<String>
+statifier::Options: field session_id: String
+statifier::Options: field target_required: BTreeSet<String>
+statifier::Options: field trace: bool
+statifier::Options: impl Clone for Options
+statifier::Options: impl Debug for Options
+statifier::Options: impl PartialEq for Options
+statifier::Options: impl RefUnwindSafe for Options
+statifier::Options: impl Send for Options
+statifier::Options: impl StructuralPartialEq for Options
+statifier::Options: impl Sync for Options
+statifier::Options: impl Unpin for Options
+statifier::Options: impl UnwindSafe for Options
+statifier::Options: pub fn new(session_id: impl Into<String>) -> Self
+statifier::PathSegment: #[non_exhaustive]
+statifier::PathSegment: impl Clone for PathSegment
+statifier::PathSegment: impl Debug for PathSegment
+statifier::PathSegment: impl Eq for PathSegment
+statifier::PathSegment: impl Hash for PathSegment
+statifier::PathSegment: impl PartialEq for PathSegment
+statifier::PathSegment: impl RefUnwindSafe for PathSegment
+statifier::PathSegment: impl Send for PathSegment
+statifier::PathSegment: impl Serialize for PathSegment
+statifier::PathSegment: impl StructuralPartialEq for PathSegment
+statifier::PathSegment: impl Sync for PathSegment
+statifier::PathSegment: impl Unpin for PathSegment
+statifier::PathSegment: impl UnwindSafe for PathSegment
+statifier::PathSegment: impl<'de> Deserialize<'de> for PathSegment
+statifier::PathSegment: variant Index(i64)
+statifier::PathSegment: variant Key(String)
+statifier::Position: #[non_exhaustive]
+statifier::Position: field active_invocations: Vec<ActiveInvocation>
+statifier::Position: field configuration: BTreeSet<String>
+statifier::Position: field datamodel: Map
+statifier::Position: field entered_states: BTreeSet<String>
+statifier::Position: field history_values: BTreeMap<String, BTreeSet<String>>
+statifier::Position: field identity: Value
+statifier::Position: field invoke_counter: u64
+statifier::Position: field macrostep: u64
+statifier::Position: field max_macrostep_rounds: RoundBudget
+statifier::Position: field microstep: u64
+statifier::Position: field round: u64
+statifier::Position: field running: bool
+statifier::Position: field send_counter: u64
+statifier::Position: field states_to_invoke: BTreeSet<String>
+statifier::Position: field status: Status
+statifier::Position: field timer_counter: u64
+statifier::Position: field trace: bool
+statifier::Position: impl Clone for Position
+statifier::Position: impl Debug for Position
+statifier::Position: impl Default for Position
+statifier::Position: impl PartialEq for Position
+statifier::Position: impl RefUnwindSafe for Position
+statifier::Position: impl Send for Position
+statifier::Position: impl Serialize for Position
+statifier::Position: impl StructuralPartialEq for Position
+statifier::Position: impl Sync for Position
+statifier::Position: impl Unpin for Position
+statifier::Position: impl UnwindSafe for Position
+statifier::Position: impl<'de> Deserialize<'de> for Position
+statifier::ReadReason: #[non_exhaustive]
+statifier::ReadReason: impl Clone for Reason
+statifier::ReadReason: impl Copy for Reason
+statifier::ReadReason: impl Debug for Reason
+statifier::ReadReason: impl Eq for Reason
+statifier::ReadReason: impl PartialEq for Reason
+statifier::ReadReason: impl RefUnwindSafe for Reason
+statifier::ReadReason: impl Send for Reason
+statifier::ReadReason: impl StructuralPartialEq for Reason
+statifier::ReadReason: impl Sync for Reason
+statifier::ReadReason: impl Unpin for Reason
+statifier::ReadReason: impl UnwindSafe for Reason
+statifier::ReadReason: variant AmbiguousDoctype
+statifier::ReadReason: variant ByteOrderMark
+statifier::ReadReason: variant CdataEndInText
+statifier::ReadReason: variant ContentAfterRoot
+statifier::ReadReason: variant ContentBeforeRoot
+statifier::ReadReason: variant DoubleHyphenInComment
+statifier::ReadReason: variant ExpectedEquals
+statifier::ReadReason: variant ExpectedName
+statifier::ReadReason: variant ExpectedQuote
+statifier::ReadReason: variant ExpectedTagEnd
+statifier::ReadReason: variant ExpectedWhitespace
+statifier::ReadReason: variant InvalidCharacter
+statifier::ReadReason: variant InvalidCharacterReference
+statifier::ReadReason: variant InvalidEncoding
+statifier::ReadReason: variant LtInAttributeValue
+statifier::ReadReason: variant MalformedReference
+statifier::ReadReason: variant MalformedXmlDeclaration
+statifier::ReadReason: variant MismatchedEndTag
+statifier::ReadReason: variant MisplacedXmlDeclaration
+statifier::ReadReason: variant MissingRoot
+statifier::ReadReason: variant ReservedTarget
+statifier::ReadReason: variant UnclosedElement
+statifier::ReadReason: variant UnexpectedEnd
+statifier::ReadReason: variant UnsupportedEncoding
+statifier::ReadReason: variant UnterminatedCdata
+statifier::ReadReason: variant UnterminatedComment
+statifier::ReadReason: variant UnterminatedDoctype
+statifier::ReadReason: variant UnterminatedProcessingInstruction
+statifier::Reason: #[non_exhaustive]
+statifier::Reason: impl Clone for Reason
+statifier::Reason: impl Debug for Reason
+statifier::Reason: impl Eq for Reason
+statifier::Reason: impl PartialEq for Reason
+statifier::Reason: impl RefUnwindSafe for Reason
+statifier::Reason: impl Send for Reason
+statifier::Reason: impl StructuralPartialEq for Reason
+statifier::Reason: impl Sync for Reason
+statifier::Reason: impl Unpin for Reason
+statifier::Reason: impl UnwindSafe for Reason
+statifier::Reason: variant Compile(CompileReason)
+statifier::Reason: variant Lowering(LoweringReason)
+statifier::Reason: variant Read(ReadReason)
+statifier::Reason: variant Validation(ValidationReason)
+statifier::Refusal: impl Clone for Refusal
+statifier::Refusal: impl Debug for Refusal
+statifier::Refusal: impl Display for Refusal
+statifier::Refusal: impl Eq for Refusal
+statifier::Refusal: impl Error for Refusal
+statifier::Refusal: impl PartialEq for Refusal
+statifier::Refusal: impl RefUnwindSafe for Refusal
+statifier::Refusal: impl Send for Refusal
+statifier::Refusal: impl StructuralPartialEq for Refusal
+statifier::Refusal: impl Sync for Refusal
+statifier::Refusal: impl Unpin for Refusal
+statifier::Refusal: impl UnwindSafe for Refusal
+statifier::Refusal: pub fn message(&self) -> &str
+statifier::Refusal: pub fn reason(&self) -> &Reason
+statifier::Refusal: pub fn span(&self) -> Span
+statifier::RoundBudget: #[non_exhaustive]
+statifier::RoundBudget: impl Clone for RoundBudget
+statifier::RoundBudget: impl Copy for RoundBudget
+statifier::RoundBudget: impl Debug for RoundBudget
+statifier::RoundBudget: impl Default for RoundBudget
+statifier::RoundBudget: impl Eq for RoundBudget
+statifier::RoundBudget: impl Hash for RoundBudget
+statifier::RoundBudget: impl PartialEq for RoundBudget
+statifier::RoundBudget: impl RefUnwindSafe for RoundBudget
+statifier::RoundBudget: impl Send for RoundBudget
+statifier::RoundBudget: impl Serialize for RoundBudget
+statifier::RoundBudget: impl StructuralPartialEq for RoundBudget
+statifier::RoundBudget: impl Sync for RoundBudget
+statifier::RoundBudget: impl Unpin for RoundBudget
+statifier::RoundBudget: impl UnwindSafe for RoundBudget
+statifier::RoundBudget: impl<'de> Deserialize<'de> for RoundBudget
+statifier::RoundBudget: variant Rounds(NonZeroU64)
+statifier::RoundBudget: variant Unbounded
+statifier::Span: #[non_exhaustive]
+statifier::Span: field end_column: usize
+statifier::Span: field end_line: usize
+statifier::Span: field end_offset: usize
+statifier::Span: field start_column: usize
+statifier::Span: field start_line: usize
+statifier::Span: field start_offset: usize
+statifier::Span: impl Clone for Span
+statifier::Span: impl Copy for Span
+statifier::Span: impl Debug for Span
+statifier::Span: impl Eq for Span
+statifier::Span: impl Hash for Span
+statifier::Span: impl PartialEq for Span
+statifier::Span: impl RefUnwindSafe for Span
+statifier::Span: impl Send for Span
+statifier::Span: impl StructuralPartialEq for Span
+statifier::Span: impl Sync for Span
+statifier::Span: impl Unpin for Span
+statifier::Span: impl UnwindSafe for Span
+statifier::State: impl Clone for State
+statifier::State: impl Debug for State
+statifier::State: impl RefUnwindSafe for State
+statifier::State: impl Send for State
+statifier::State: impl Sync for State
+statifier::State: impl Unpin for State
+statifier::State: impl UnwindSafe for State
+statifier::State: pub fn active_leaf_count(&self) -> usize
+statifier::State: pub fn active_leaf_states(&self) -> Vec<String>
+statifier::State: pub fn advance(&self, ms: u64) -> Result<Moved, Error>
+statifier::State: pub fn configuration(&self) -> Vec<String>
+statifier::State: pub fn done(&self) -> Option<&Done>
+statifier::State: pub fn export_position(&self) -> Result<Position, ExportError>
+statifier::State: pub fn next_due_ms(&self) -> Option<u64>
+statifier::State: pub fn now_ms(&self) -> u64
+statifier::State: pub fn report_send_failed(&self, send: &Effect, reason: Option<&str>) -> Result<Moved, Error>
+statifier::State: pub fn step(&self, name: &str, data: Value) -> Result<Moved, Error>
+statifier::Status: #[non_exhaustive]
+statifier::Status: impl Clone for Status
+statifier::Status: impl Copy for Status
+statifier::Status: impl Debug for Status
+statifier::Status: impl Eq for Status
+statifier::Status: impl Hash for Status
+statifier::Status: impl PartialEq for Status
+statifier::Status: impl RefUnwindSafe for Status
+statifier::Status: impl Send for Status
+statifier::Status: impl Serialize for Status
+statifier::Status: impl StructuralPartialEq for Status
+statifier::Status: impl Sync for Status
+statifier::Status: impl Unpin for Status
+statifier::Status: impl UnwindSafe for Status
+statifier::Status: impl<'de> Deserialize<'de> for Status
+statifier::Status: variant Done
+statifier::Status: variant Running
+statifier::ValidationReason: #[non_exhaustive]
+statifier::ValidationReason: impl Clone for Reason
+statifier::ValidationReason: impl Debug for Reason
+statifier::ValidationReason: impl Eq for Reason
+statifier::ValidationReason: impl PartialEq for Reason
+statifier::ValidationReason: impl RefUnwindSafe for Reason
+statifier::ValidationReason: impl Send for Reason
+statifier::ValidationReason: impl StructuralPartialEq for Reason
+statifier::ValidationReason: impl Sync for Reason
+statifier::ValidationReason: impl Unpin for Reason
+statifier::ValidationReason: impl UnwindSafe for Reason
+statifier::ValidationReason: variant #[non_exhaustive] AssignExprAndText
+statifier::ValidationReason: variant #[non_exhaustive] BadNamespace
+statifier::ValidationReason: variant #[non_exhaustive] BadVersion
+statifier::ValidationReason: variant #[non_exhaustive] ContentExprAndText
+statifier::ValidationReason: variant #[non_exhaustive] DataExprAndSrc
+statifier::ValidationReason: variant #[non_exhaustive] DataReservedId
+statifier::ValidationReason: variant #[non_exhaustive] DataValueAndChildren
+statifier::ValidationReason: variant #[non_exhaustive] DatamodelBadParent
+statifier::ValidationReason: variant #[non_exhaustive] DefaultEntryNotEnterable
+statifier::ValidationReason: variant #[non_exhaustive] DonedataContentAndParams
+statifier::ValidationReason: variant #[non_exhaustive] DonedataNotOnFinal
+statifier::ValidationReason: variant #[non_exhaustive] DuplicateAttribute
+statifier::ValidationReason: variant #[non_exhaustive] DuplicateId
+statifier::ValidationReason: variant #[non_exhaustive] FinalHasStates
+statifier::ValidationReason: variant #[non_exhaustive] FinalHasTransitions
+statifier::ValidationReason: variant #[non_exhaustive] FinalParentMissingId
+statifier::ValidationReason: variant #[non_exhaustive] HistoryBadParent
+statifier::ValidationReason: variant #[non_exhaustive] HistoryBadType
+statifier::ValidationReason: variant #[non_exhaustive] InitialAttributeAndElement
+statifier::ValidationReason: variant #[non_exhaustive] InitialNotDescendant
+statifier::ValidationReason: variant #[non_exhaustive] InitialOnAtomicState
+statifier::ValidationReason: variant #[non_exhaustive] InvokeBadAutoforward
+statifier::ValidationReason: variant #[non_exhaustive] ParamExprAndLocation
+statifier::ValidationReason: variant #[non_exhaustive] ParamNoValue
+statifier::ValidationReason: variant #[non_exhaustive] ScxmlBadBinding
+statifier::ValidationReason: variant #[non_exhaustive] ScxmlBadDatamodel
+statifier::ValidationReason: variant #[non_exhaustive] TransitionBadType
+statifier::ValidationReason: variant #[non_exhaustive] TransitionCount
+statifier::ValidationReason: variant #[non_exhaustive] TransitionForbiddenAttribute
+statifier::ValidationReason: variant #[non_exhaustive] TransitionMissingTarget
+statifier::ValidationReason: variant #[non_exhaustive] UnresolvedInitial
+statifier::ValidationReason: variant #[non_exhaustive] UnresolvedTarget
+statifier::ValidationReason: variant AssignExprAndText field expr: String
+statifier::ValidationReason: variant BadNamespace field uri: Option<String>
+statifier::ValidationReason: variant BadVersion field version: Option<String>
+statifier::ValidationReason: variant CancelNoSendid
+statifier::ValidationReason: variant CancelSendidAndSendidexpr
+statifier::ValidationReason: variant ContentExprAndText field expr: String
+statifier::ValidationReason: variant DataExprAndSrc field id: String
+statifier::ValidationReason: variant DataReservedId field id: String
+statifier::ValidationReason: variant DataValueAndChildren field id: String
+statifier::ValidationReason: variant DatamodelBadParent field kind: &'static str
+statifier::ValidationReason: variant DefaultEntryNotEnterable field child_kind: &'static str
+statifier::ValidationReason: variant DefaultEntryNotEnterable field id: Option<String>
+statifier::ValidationReason: variant DonedataContentAndParams field id: Option<String>
+statifier::ValidationReason: variant DonedataNotOnFinal field id: Option<String>
+statifier::ValidationReason: variant DuplicateAttribute field attribute: String
+statifier::ValidationReason: variant DuplicateAttribute field element: String
+statifier::ValidationReason: variant DuplicateId field id: String
+statifier::ValidationReason: variant EmptyId
+statifier::ValidationReason: variant FinalHasStates field id: Option<String>
+statifier::ValidationReason: variant FinalHasTransitions field id: Option<String>
+statifier::ValidationReason: variant FinalParentMissingId field final_id: Option<String>
+statifier::ValidationReason: variant HistoryBadParent field id: Option<String>
+statifier::ValidationReason: variant HistoryBadParent field parent_kind: &'static str
+statifier::ValidationReason: variant HistoryBadType field raw: String
+statifier::ValidationReason: variant IfDuplicateElse
+statifier::ValidationReason: variant IfElseifAfterElse
+statifier::ValidationReason: variant InitialAttributeAndElement field id: Option<String>
+statifier::ValidationReason: variant InitialNotDescendant field id: String
+statifier::ValidationReason: variant InitialNotDescendant field parent_id: Option<String>
+statifier::ValidationReason: variant InitialOnAtomicState field id: Option<String>
+statifier::ValidationReason: variant InvokeBadAutoforward field raw: String
+statifier::ValidationReason: variant InvokeIdAndIdlocation
+statifier::ValidationReason: variant InvokeNamelistAndParam
+statifier::ValidationReason: variant InvokeSrcAndContent
+statifier::ValidationReason: variant InvokeSrcAndSrcexpr
+statifier::ValidationReason: variant InvokeTypeAndTypeexpr
+statifier::ValidationReason: variant ParamExprAndLocation field name: String
+statifier::ValidationReason: variant ParamNoValue field name: String
+statifier::ValidationReason: variant ScriptNoSrcOrText
+statifier::ValidationReason: variant ScxmlBadBinding field raw: String
+statifier::ValidationReason: variant ScxmlBadDatamodel field raw: String
+statifier::ValidationReason: variant SendDelayAndDelayexpr
+statifier::ValidationReason: variant SendDelayAndInternalTarget
+statifier::ValidationReason: variant SendEventAndEventexpr
+statifier::ValidationReason: variant SendIdAndIdlocation
+statifier::ValidationReason: variant SendNamelistAndContent
+statifier::ValidationReason: variant SendParamAndContent
+statifier::ValidationReason: variant SendTargetAndTargetexpr
+statifier::ValidationReason: variant SendTypeAndTypeexpr
+statifier::ValidationReason: variant TransitionBadType field raw: String
+statifier::ValidationReason: variant TransitionCount field count: usize
+statifier::ValidationReason: variant TransitionCount field owner: DefaultTransitionOwner
+statifier::ValidationReason: variant TransitionForbiddenAttribute field attribute: &'static str
+statifier::ValidationReason: variant TransitionForbiddenAttribute field owner: DefaultTransitionOwner
+statifier::ValidationReason: variant TransitionMissingTarget field owner: DefaultTransitionOwner
+statifier::ValidationReason: variant UnresolvedInitial field id: String
+statifier::ValidationReason: variant UnresolvedTarget field id: String
+statifier::Value: re-exported from another crate
+statifier::Warning: impl Clone for Warning
+statifier::Warning: impl Debug for Warning
+statifier::Warning: impl Eq for Warning
+statifier::Warning: impl PartialEq for Warning
+statifier::Warning: impl RefUnwindSafe for Warning
+statifier::Warning: impl Send for Warning
+statifier::Warning: impl StructuralPartialEq for Warning
+statifier::Warning: impl Sync for Warning
+statifier::Warning: impl Unpin for Warning
+statifier::Warning: impl UnwindSafe for Warning
+statifier::Warning: pub fn message(&self) -> &str
+statifier::Warning: pub fn reason(&self) -> &WarningReason
+statifier::Warning: pub fn span(&self) -> Span
+statifier::WarningReason: #[non_exhaustive]
+statifier::WarningReason: impl Clone for WarningReason
+statifier::WarningReason: impl Debug for WarningReason
+statifier::WarningReason: impl Eq for WarningReason
+statifier::WarningReason: impl PartialEq for WarningReason
+statifier::WarningReason: impl RefUnwindSafe for WarningReason
+statifier::WarningReason: impl Send for WarningReason
+statifier::WarningReason: impl StructuralPartialEq for WarningReason
+statifier::WarningReason: impl Sync for WarningReason
+statifier::WarningReason: impl Unpin for WarningReason
+statifier::WarningReason: impl UnwindSafe for WarningReason
+statifier::WarningReason: variant #[non_exhaustive] FinalizeForbiddenContent
+statifier::WarningReason: variant FinalizeForbiddenContent field element: &'static str
+statifier::basichttp::DecodeError: #[non_exhaustive]
+statifier::basichttp::DecodeError: impl Clone for DecodeError
+statifier::basichttp::DecodeError: impl Debug for DecodeError
+statifier::basichttp::DecodeError: impl Display for DecodeError
+statifier::basichttp::DecodeError: impl Eq for DecodeError
+statifier::basichttp::DecodeError: impl Error for DecodeError
+statifier::basichttp::DecodeError: impl PartialEq for DecodeError
+statifier::basichttp::DecodeError: impl RefUnwindSafe for DecodeError
+statifier::basichttp::DecodeError: impl Send for DecodeError
+statifier::basichttp::DecodeError: impl StructuralPartialEq for DecodeError
+statifier::basichttp::DecodeError: impl Sync for DecodeError
+statifier::basichttp::DecodeError: impl Unpin for DecodeError
+statifier::basichttp::DecodeError: impl UnwindSafe for DecodeError
+statifier::basichttp::DecodeError: variant #[non_exhaustive] MalformedSendKey
+statifier::basichttp::DecodeError: variant #[non_exhaustive] MethodNotAllowed
+statifier::basichttp::DecodeError: variant #[non_exhaustive] NotUtf8
+statifier::basichttp::DecodeError: variant MalformedSendKey field value: String
+statifier::basichttp::DecodeError: variant MethodNotAllowed field method: String
+statifier::basichttp::DecodeError: variant NotUtf8 field part: Part
+statifier::basichttp::Delivery: #[non_exhaustive]
+statifier::basichttp::Delivery: impl !RefUnwindSafe for Delivery
+statifier::basichttp::Delivery: impl !UnwindSafe for Delivery
+statifier::basichttp::Delivery: impl Clone for Delivery
+statifier::basichttp::Delivery: impl Debug for Delivery
+statifier::basichttp::Delivery: impl Send for Delivery
+statifier::basichttp::Delivery: impl Sync for Delivery
+statifier::basichttp::Delivery: impl Unpin for Delivery
+statifier::basichttp::Delivery: variant #[non_exhaustive] Delivered
+statifier::basichttp::Delivery: variant #[non_exhaustive] Missed
+statifier::basichttp::Delivery: variant Delivered field response: Response
+statifier::basichttp::Delivery: variant Missed field miss: Miss
+statifier::basichttp::Delivery: variant Missed field moved: Option<Box<Moved>>
+statifier::basichttp::Miss: #[non_exhaustive]
+statifier::basichttp::Miss: impl !RefUnwindSafe for Miss
+statifier::basichttp::Miss: impl !UnwindSafe for Miss
+statifier::basichttp::Miss: impl Clone for Miss
+statifier::basichttp::Miss: impl Debug for Miss
+statifier::basichttp::Miss: impl Display for Miss
+statifier::basichttp::Miss: impl Send for Miss
+statifier::basichttp::Miss: impl Sync for Miss
+statifier::basichttp::Miss: impl Unpin for Miss
+statifier::basichttp::Miss: variant #[non_exhaustive] Status
+statifier::basichttp::Miss: variant #[non_exhaustive] Transport
+statifier::basichttp::Miss: variant NoTarget
+statifier::basichttp::Miss: variant Status field response: Response
+statifier::basichttp::Miss: variant Transport field error: TransportError
+statifier::basichttp::Part: #[non_exhaustive]
+statifier::basichttp::Part: impl Clone for Part
+statifier::basichttp::Part: impl Copy for Part
+statifier::basichttp::Part: impl Debug for Part
+statifier::basichttp::Part: impl Eq for Part
+statifier::basichttp::Part: impl Hash for Part
+statifier::basichttp::Part: impl PartialEq for Part
+statifier::basichttp::Part: impl RefUnwindSafe for Part
+statifier::basichttp::Part: impl Send for Part
+statifier::basichttp::Part: impl StructuralPartialEq for Part
+statifier::basichttp::Part: impl Sync for Part
+statifier::basichttp::Part: impl Unpin for Part
+statifier::basichttp::Part: impl UnwindSafe for Part
+statifier::basichttp::Part: variant Body
+statifier::basichttp::Part: variant Query
+statifier::basichttp::Received: #[non_exhaustive]
+statifier::basichttp::Received: field data: Value
+statifier::basichttp::Received: field name: String
+statifier::basichttp::Received: impl Clone for Received
+statifier::basichttp::Received: impl Debug for Received
+statifier::basichttp::Received: impl PartialEq for Received
+statifier::basichttp::Received: impl RefUnwindSafe for Received
+statifier::basichttp::Received: impl Send for Received
+statifier::basichttp::Received: impl StructuralPartialEq for Received
+statifier::basichttp::Received: impl Sync for Received
+statifier::basichttp::Received: impl Unpin for Received
+statifier::basichttp::Received: impl UnwindSafe for Received
+statifier::basichttp::Request: #[non_exhaustive]
+statifier::basichttp::Request: field address: String
+statifier::basichttp::Request: field body: Vec<u8>
+statifier::basichttp::Request: field headers: Vec<(String, String)>
+statifier::basichttp::Request: field method: String
+statifier::basichttp::Request: impl Clone for Request
+statifier::basichttp::Request: impl Debug for Request
+statifier::basichttp::Request: impl Eq for Request
+statifier::basichttp::Request: impl Hash for Request
+statifier::basichttp::Request: impl PartialEq for Request
+statifier::basichttp::Request: impl RefUnwindSafe for Request
+statifier::basichttp::Request: impl Send for Request
+statifier::basichttp::Request: impl StructuralPartialEq for Request
+statifier::basichttp::Request: impl Sync for Request
+statifier::basichttp::Request: impl Unpin for Request
+statifier::basichttp::Request: impl UnwindSafe for Request
+statifier::basichttp::Request: pub fn new(method: impl Into<String>, address: impl Into<String>, headers: Vec<(String, String)>, body: impl Into<Vec<u8>>) -> Self
+statifier::basichttp::Response: #[non_exhaustive]
+statifier::basichttp::Response: field body: Vec<u8>
+statifier::basichttp::Response: field headers: Vec<(String, String)>
+statifier::basichttp::Response: field status: u16
+statifier::basichttp::Response: impl Clone for Response
+statifier::basichttp::Response: impl Debug for Response
+statifier::basichttp::Response: impl Eq for Response
+statifier::basichttp::Response: impl Hash for Response
+statifier::basichttp::Response: impl PartialEq for Response
+statifier::basichttp::Response: impl RefUnwindSafe for Response
+statifier::basichttp::Response: impl Send for Response
+statifier::basichttp::Response: impl StructuralPartialEq for Response
+statifier::basichttp::Response: impl Sync for Response
+statifier::basichttp::Response: impl Unpin for Response
+statifier::basichttp::Response: impl UnwindSafe for Response
+statifier::basichttp::Response: pub fn new(status: u16, headers: Vec<(String, String)>, body: impl Into<Vec<u8>>) -> Self
+statifier::basichttp::SHORT_FORM: pub const SHORT_FORM: &str = "basichttp";
+statifier::basichttp::Transport: fn send(&self, request: Request) -> Result<Response, TransportError>
+statifier::basichttp::TransportError: impl !RefUnwindSafe for TransportError
+statifier::basichttp::TransportError: impl !UnwindSafe for TransportError
+statifier::basichttp::TransportError: impl Clone for TransportError
+statifier::basichttp::TransportError: impl Debug for TransportError
+statifier::basichttp::TransportError: impl Display for TransportError
+statifier::basichttp::TransportError: impl Error for TransportError
+statifier::basichttp::TransportError: impl Send for TransportError
+statifier::basichttp::TransportError: impl Sync for TransportError
+statifier::basichttp::TransportError: impl Unpin for TransportError
+statifier::basichttp::TransportError: pub fn message(&self) -> &str
+statifier::basichttp::TransportError: pub fn new(message: impl Into<String>) -> Self
+statifier::basichttp::TransportError: pub fn with_source(message: impl Into<String>, source: impl Into<Box<dyn Error + Send + Sync + 'static>>) -> Self
+statifier::basichttp::URI: pub const URI: &str = "http://www.w3.org/TR/scxml/#BasicHTTPEventProcessor";
+statifier::basichttp::decode: pub fn decode(request: &Request) -> Result<Received, DecodeError>
+statifier::basichttp::deliver: pub fn deliver(state: &State, send: &Effect, transport: &dyn Transport) -> Result<Delivery, Error>
+statifier::basichttp::register: pub fn register(options: Options, base_address: &str) -> Options
+statifier::compile: pub fn compile(source: &str) -> Result<Machine, Vec<Refusal>>
+struct statifier::AcceptsCheck
+struct statifier::ActiveInvocation
+struct statifier::Done
+struct statifier::Machine
+struct statifier::Map
+struct statifier::Moved
+struct statifier::Options
+struct statifier::Position
+struct statifier::Refusal
+struct statifier::Span
+struct statifier::State
+struct statifier::Warning
+struct statifier::basichttp::Received
+struct statifier::basichttp::Request
+struct statifier::basichttp::Response
+struct statifier::basichttp::TransportError
+trait statifier::basichttp::Transport

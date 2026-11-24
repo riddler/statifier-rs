@@ -76,6 +76,26 @@ run = [
   "cargo doc --no-deps --no-default-features",
 ]
 
+[tasks."gate:surface"]
+description = "The public items, built from the docs with every feature, equal tests/public-items.txt"
+# The documentation is built with every feature on, then one test of
+# tests/surface.rs reads it: the listing of every public item it builds is
+# compared with the checked-in tests/public-items.txt, and an item added,
+# removed or renamed fails the stage, naming the lines, until the listing
+# changes in the same commit.
+run = [
+  "cargo doc --no-deps --all-features",
+  "cargo test --all-features --test surface -- --ignored --exact surface_check --nocapture",
+]
+
+[tasks."surface:write"]
+description = "Write tests/public-items.txt from the docs built with every feature"
+# The one writer of the listing, outside the gate.
+run = [
+  "cargo doc --no-deps --all-features",
+  "cargo test --all-features --test surface -- --ignored --exact surface_write --nocapture",
+]
+
 [tasks."gate:coverage"]
 description = "Line coverage with every feature, failing under 90 percent"
 run = "cargo llvm-cov --all-features --fail-under-lines 90"
@@ -102,6 +122,7 @@ run = [
   { task = "gate:position" },
   { task = "gate:test" },
   { task = "gate:doc" },
+  { task = "gate:surface" },
   { task = "gate:coverage" },
   { task = "gate:deny" },
 ]
