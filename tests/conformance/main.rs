@@ -228,19 +228,19 @@ fn the_position_stage_fails_an_export_that_loses_a_field() {
     );
 }
 
-// The README check: the Conformance section's table of claims, the counts
-// under them and the tag it names agree with the shipped registry and the
-// provenance record, so the README cannot drift from either.
-// Sabotage: with one count in the README's table changed, this test fails
-// naming the claim.
+// The README check: the Conformance section's table per suite, the counts
+// under each group and the tag it names agree with the shipped registry, the
+// corpus and the provenance record, so the README cannot drift from any.
+// Sabotage: with one count in a README table changed, this test fails
+// naming the suite and the group.
 #[test]
 fn readme_conformance_matches_the_registry() {
     let corpus = corpus();
-    let counts = readme::counts(&shipped_registry().entries, &corpus);
+    let tables = readme::tables(&shipped_registry().entries, &corpus);
     let readme = std::fs::read_to_string(root().join("..").join("README.md")).unwrap();
     let provenance = corpus::read_json(&root(), corpus::PROVENANCE_FILE).unwrap();
     let tag = provenance["tag"].as_str().unwrap();
-    let problems = readme::problems(&readme, &counts, tag);
+    let problems = readme::problems(&readme, &tables, tag);
     assert!(
         problems.is_empty(),
         "README check failed:\n  {}",

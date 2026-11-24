@@ -99,6 +99,26 @@ descriptor matches (`unreachable`) and the descriptors no declared name
 matches (`undeclared`), refusing nothing.
 
 ```rust
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let machine = statifier::compile(
+        r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0">
+             <state id="a"><transition event="e.go" target="b"/></state>
+             <state id="b"><transition event="e.stop"/></state>
+           </scxml>"#,
+    )
+    .map_err(|refusals| format!("{refusals:?}"))?;
+
+    // The host declares the names it will send; the chart reads them
+    // against its own transitions, and a host decides what to do with
+    // either list.
+    let check = machine.check_accepts(Some(&["e.go", "e.cancel"]));
+    assert_eq!(check.unreachable, ["e.cancel"]);
+    assert_eq!(check.undeclared, ["e.stop"]);
+    Ok(())
+}
+```
+
+```rust
 use statifier::{Options, Value};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -242,8 +262,140 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+Each kind of effect is one variant, and each documents what a host does with
+it (see the table on `Effect`). A chart that binds a datamodel value, logs,
+writes, schedules and cancels a send, then stops, answers these effects, in
+the order it made them (the binding is a datamodel change too):
+
+```rust
+use statifier::{Effect, Options};
+
+fn kind(effect: &Effect) -> &'static str {
+    match effect {
+        Effect::DatamodelInit { .. } => "datamodel_init",
+        Effect::Log { .. } => "log",
+        Effect::DatamodelChange { .. } => "datamodel_change",
+        Effect::SendDelayed { .. } => "send_delayed",
+        Effect::Cancel { .. } => "cancel",
+        Effect::Done { .. } => "done",
+        _ => "another kind",
+    }
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let machine = statifier::compile(
+        r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" initial="a">
+             <datamodel><data id="x" expr="1"/></datamodel>
+             <state id="a">
+               <onentry>
+                 <log label="entered" expr="x"/>
+                 <assign location="x" expr="2"/>
+                 <send id="t" event="e.late" delay="1s" type="x-example"/>
+                 <cancel sendid="t"/>
+               </onentry>
+               <transition target="b"/>
+             </state>
+             <final id="b"/>
+           </scxml>"#,
+    )
+    .map_err(|refusals| format!("{refusals:?}"))?;
+
+    let mut options = Options::new("s-1");
+    options.send_types.insert("x-example".to_owned());
+    let started = machine.start(options)?;
+    let kinds: Vec<_> = started.effects.iter().map(kind).collect();
+    assert_eq!(
+        kinds,
+        [
+              "datamodel_init",
+              "datamodel_change",
+              "log",
+              "datamodel_change",
+              "send_delayed",
+              "cancel",
+              "done"
+          ]
+    );
+    Ok(())
+}
+```
+
+The other kinds are `Effect::Invoke`, `Effect::CancelInvoke`,
+`Effect::Autoforward` and `Effect::Child`, which a chart that holds an
+`<invoke>` answers, and `Effect::BudgetExhausted`, which a macrostep that
+spent its round budget answers.
+
+A host that could not deliver a send it was handed reports it, and the
+sending session takes `error.communication`, its `sendid` the send's id:
+
+```rust
+use statifier::{Effect, Options};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let machine = statifier::compile(
+        r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" initial="a">
+             <state id="a">
+               <onentry><send type="x-example" target="t1" event="e.out"/></onentry>
+               <transition event="error.communication" target="b"/>
+             </state>
+             <state id="b"/>
+           </scxml>"#,
+    )
+    .map_err(|refusals| format!("{refusals:?}"))?;
+
+    let mut options = Options::new("s-1");
+    options.send_types.insert("x-example".to_owned());
+    let started = machine.start(options)?;
+    let send = started
+        .effects
+        .iter()
+        .find(|effect| matches!(effect, Effect::Send { .. }))
+        .ok_or("the send is handed to the host")?;
+
+    // The host's own delivery failed: the chart is told, and its own
+    // transition takes the error.
+    let reported = started.state.report_send_failed(send, Some("no route"))?;
+    assert_eq!(reported.state.configuration(), ["b"]);
+    Ok(())
+}
+```
+
 With the `serde` feature an effect serializes as a map whose `kind` is the
 variant in snake case beside its fields in camel case.
+
+```rust
+# #[cfg(feature = "serde")]
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+use statifier::Options;
+
+let machine = statifier::compile(
+    r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" initial="a">
+         <state id="a"><onentry><log label="entered"/></onentry></state>
+       </scxml>"#,
+)
+.map_err(|refusals| format!("{refusals:?}"))?;
+let started = machine.start(Options::new("s-1"))?;
+
+// An effect is a map whose `kind` is the variant in snake case.
+let log = started
+    .effects
+    .iter()
+    .find(|effect| matches!(effect, statifier::Effect::Log { .. }))
+    .ok_or("the log is an effect")?;
+let json = serde_json::to_value(log)?;
+assert_eq!(json["kind"], "log");
+assert_eq!(json["label"], "entered");
+
+// A position is the same: JSON text a host keeps, and resumes from.
+let text = serde_json::to_string(&started.state.export_position()?)?;
+let position = serde_json::from_str(&text)?;
+let resumed = machine.import_position(&position)?;
+assert_eq!(resumed.configuration(), ["a"]);
+# Ok(())
+# }
+# #[cfg(not(feature = "serde"))]
+# fn main() {}
+```
 
 ## The Basic HTTP Event I/O Processor
 
@@ -517,20 +669,75 @@ conformance corpus, vendored under `conformance/` at the release tag
 tag, the commit and the corpus hash, and `conformance/README.md` says what
 is copied and from where). `conformance/registry.json` records one entry per
 corpus case this crate passes, and the claims those entries make. At this
-head:
+head there is one table per suite: a row per group of the suite's cases (a
+directory of the corpus, and for the w3c suite the claim a case counts
+toward), with the cases the corpus holds there, the cases the registry
+claims and the cases it does not.
 
-| Claim | Cases passing |
-|---|---|
-| scion | 119 |
-| statifier | 36 |
-| w3c-mandatory | 152 |
-| w3c-optional | 13 |
-| Total | 320 |
+### scion
+
+| Group | Cases | Claimed | Unclaimed |
+|---|---|---|---|
+| `actionSend` | 10 | 10 | 0 |
+| `assign` | 2 | 2 | 0 |
+| `assign-current-small-step` | 4 | 4 | 0 |
+| `atom3-basic-tests` | 4 | 4 | 0 |
+| `basic` | 3 | 3 | 0 |
+| `cond-js` | 4 | 4 | 0 |
+| `data` | 2 | 2 | 0 |
+| `default-initial-state` | 2 | 2 | 0 |
+| `delayedSend` | 3 | 3 | 0 |
+| `documentOrder` | 1 | 1 | 0 |
+| `foreach` | 1 | 1 | 0 |
+| `hierarchy` | 3 | 3 | 0 |
+| `hierarchy+documentOrder` | 2 | 2 | 0 |
+| `history` | 8 | 8 | 0 |
+| `if-else` | 1 | 1 | 0 |
+| `in` | 1 | 1 | 0 |
+| `internal-transitions` | 2 | 2 | 0 |
+| `misc` | 1 | 1 | 0 |
+| `more-parallel` | 13 | 13 | 0 |
+| `multiple-events-per-transition` | 1 | 1 | 0 |
+| `parallel` | 4 | 4 | 0 |
+| `parallel+interrupt` | 34 | 34 | 0 |
+| `script` | 3 | 3 | 0 |
+| `scxml-prefix-event-name-matching` | 3 | 3 | 0 |
+| `send-data` | 1 | 1 | 0 |
+| `send-idlocation` | 1 | 1 | 0 |
+| `send-internal` | 1 | 1 | 0 |
+| `targetless-transition` | 4 | 4 | 0 |
+| Total | 119 | 119 | 0 |
+
+### statifier
+
+| Group | Cases | Claimed | Unclaimed |
+|---|---|---|---|
+| `accepts` | 1 | 1 | 0 |
+| `diff` | 10 | 10 | 0 |
+| `library` | 20 | 20 | 0 |
+| `send` | 4 | 4 | 0 |
+| `system_variables` | 1 | 1 | 0 |
+| Total | 36 | 36 | 0 |
+
+### w3c
+
+| Group | Cases | Claimed | Unclaimed |
+|---|---|---|---|
+| `w3c-mandatory` | 154 | 152 | 2 |
+| `w3c-optional` | 14 | 13 | 1 |
+| Total | 168 | 165 | 3 |
+
+The registry holds 320 entries, the sum of the Claimed columns. This crate's
+registry lists the same cases as the reference's registry at the tag. Three
+cases are not claimed, and the reference does not claim any of them
+either: `w3c/test201` (described under "Differences from the reference"),
+`w3c/test330` and `w3c/test552`.
 
 No case is skipped. A case this crate cannot pass is a defect to bring to
 the reference, never an entry on a skip list. The full gate re-runs the
 corpus and fails when the registry and a run made now disagree, and a test
-fails when the table above and the registry disagree.
+fails when a table above, or the count of registry entries, disagrees with
+the registry and the corpus.
 
 ## Differences from the reference
 
