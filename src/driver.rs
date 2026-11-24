@@ -248,6 +248,12 @@ pub struct Done {
     /// reference's conformance harness compares once it restores the
     /// configuration its done effect carries.
     pub active_leaf_states: Vec<String>,
+    /// How many leaf states the configuration the chart stopped in holds,
+    /// a state with no id counted too: more than
+    /// [`active_leaf_states`](Done::active_leaf_states) holds when a leaf it
+    /// stopped in has no id. It is [`State::active_leaf_count`] for a
+    /// stopped chart.
+    pub active_leaf_count: usize,
 }
 
 /// A delayed send waiting on the virtual clock.
@@ -462,6 +468,35 @@ impl State {
         leaf_ids(&self.core, self.core.configuration.iter().copied())
     }
 
+    /// How many active leaf states there are, a state with no id counted
+    /// too: more than [`active_leaf_states`](State::active_leaf_states)
+    /// holds when an active leaf has no id, which no expected configuration
+    /// can name. The reference's conformance harness compares the two
+    /// counts so that an anonymous active leaf fails a case rather than
+    /// passing unseen. A stopped chart has none; the leaves it stopped in
+    /// are counted in [`Done::active_leaf_count`].
+    ///
+    /// ```
+    /// use statifier::Options;
+    ///
+    /// let machine = statifier::compile(
+    ///     r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" initial="p">
+    ///          <parallel id="p">
+    ///            <state id="a"/>
+    ///            <state/>
+    ///          </parallel>
+    ///        </scxml>"#,
+    /// )
+    /// .map_err(|refusals| format!("{refusals:?}"))?;
+    /// let started = machine.start(Options::new("s-1"))?;
+    /// assert_eq!(started.state.active_leaf_states(), ["a"]);
+    /// assert_eq!(started.state.active_leaf_count(), 2);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn active_leaf_count(&self) -> usize {
+        leaf_count(&self.core, self.core.configuration.iter().copied())
+    }
+
     /// `None` while the chart runs; once it has stopped, its donedata, the
     /// configuration it stopped in and that configuration's leaf states.
     pub fn done(&self) -> Option<&Done> {
@@ -505,6 +540,14 @@ fn leaf_ids(core: &MachineState, indexes: impl Iterator<Item = usize>) -> Vec<St
         core,
         indexes.filter(|&index| index < chart.states.len() && chart.is_atomic(index)),
     )
+}
+
+/// How many of `indexes` are atomic states, a state with no id counted too.
+fn leaf_count(core: &MachineState, indexes: impl Iterator<Item = usize>) -> usize {
+    let chart = core.chart();
+    indexes
+        .filter(|&index| index < chart.states.len() && chart.is_atomic(index))
+        .count()
 }
 
 /// An external event waiting, and whether this call counts it against the
@@ -714,6 +757,7 @@ impl Call {
                     donedata: donedata.clone().unwrap_or(Value::Undefined),
                     configuration: ids(&self.state.core, configuration.iter().copied()),
                     active_leaf_states: leaf_ids(&self.state.core, configuration.iter().copied()),
+                    active_leaf_count: leaf_count(&self.state.core, configuration.iter().copied()),
                 });
                 self.state.timers.clear();
                 self.external.clear();

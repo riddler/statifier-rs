@@ -125,12 +125,14 @@ impl Serialize for Position {
 }
 
 impl Serialize for Done {
-    /// `donedata`, `configuration` and `activeLeafStates`.
+    /// `donedata`, `configuration`, `activeLeafStates` and
+    /// `activeLeafCount`.
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut map = serializer.serialize_map(Some(3))?;
+        let mut map = serializer.serialize_map(Some(4))?;
         map.serialize_entry("donedata", &self.donedata)?;
         map.serialize_entry("configuration", &self.configuration)?;
         map.serialize_entry("activeLeafStates", &self.active_leaf_states)?;
+        map.serialize_entry("activeLeafCount", &self.active_leaf_count)?;
         map.end()
     }
 }
@@ -564,6 +566,7 @@ fn done_of(value: Value) -> Result<Done, String> {
         donedata: fields.take("donedata")?,
         configuration: fields.take_as("configuration", ids, "a list of ids")?,
         active_leaf_states: fields.take_as("activeLeafStates", ids, "a list of ids")?,
+        active_leaf_count: fields.take_as("activeLeafCount", as_usize, "a count")?,
     })
 }
 

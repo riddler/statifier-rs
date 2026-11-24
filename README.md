@@ -18,7 +18,8 @@ moves by `State::step` (an external event) and `State::advance` (the
 virtual clock); each call answers a new state and the effects it produced,
 and leaves the state it was given unchanged. `State::active_leaf_states`
 reads the active leaf states, the set a conformance case's expected
-configuration names. The driver takes no runtime,
+configuration names, and `State::active_leaf_count` counts them, a state
+with no id included. The driver takes no runtime,
 thread, clock or I/O of its own: a `<send>` of a type the host registered
 is answered as an effect for the host to deliver.
 
@@ -94,8 +95,8 @@ variant in snake case beside its fields in camel case.
 The conformance corpus this crate is checked against is vendored under
 `conformance/`, whose README says what is copied and from where. The
 registry, `conformance/registry.json`, names the corpus cases this crate
-passes, and a gate stage runs the position round trip over every scion
-step.
+passes, in the scion and w3c suites today, and a gate stage runs the
+position round trip over every scion step.
 
 ## Differences from the reference
 

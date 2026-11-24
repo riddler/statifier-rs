@@ -733,3 +733,23 @@ fn the_leaf_read_of_a_running_chart_holds_a_nested_final() {
     let moved = started.state.step("e.go", Value::Undefined).unwrap();
     assert_eq!(moved.state.active_leaf_states(), ["t"]);
 }
+
+// The leaf count counts a leaf with no id, which the leaf read leaves out,
+// running and once stopped, and a stopped chart counts no live leaf.
+// Sabotage: with `leaf_count` counting only the states with an id, the
+// assert_eq on 3 goes red; with `Done::active_leaf_count` built from the
+// leaf read's length in `perform_one`, the assert_eq on 1 goes red.
+#[test]
+fn the_leaf_count_counts_a_leaf_with_no_id_running_and_stopped() {
+    let started = start(
+        r#" initial="p""#,
+        r#"<parallel id="p"><state id="z"/><state/><state><state id="b"/></state></parallel>"#,
+    );
+    assert_eq!(started.state.active_leaf_states(), ["b", "z"]);
+    assert_eq!(started.state.active_leaf_count(), 3);
+    let stopped = start("", "<final/>");
+    let done = stopped.state.done().expect("a stopped chart");
+    assert!(done.active_leaf_states.is_empty());
+    assert_eq!(done.active_leaf_count, 1);
+    assert_eq!(stopped.state.active_leaf_count(), 0);
+}

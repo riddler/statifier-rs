@@ -11,10 +11,20 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// The suites the drive runs. Every case of another suite fails with
 /// [`NOT_DRIVEN`], so the ratchet can claim none of it.
-pub const DRIVEN_SUITES: [&str; 1] = ["scion"];
+pub const DRIVEN_SUITES: [&str; 2] = ["scion", "w3c"];
 
 /// The reason every case of a suite the drive does not run fails with.
-pub const NOT_DRIVEN: &str = "not driven: this runner drives the scion suite only";
+pub const NOT_DRIVEN: &str = "not driven: this runner drives the scion and w3c suites only";
+
+/// The one `host` key the drive honours: the send types a case registers,
+/// each handed to [`Options::send_types`]. A case carrying any other key
+/// fails naming it, as `RATCHET.md` says of a host object a runner cannot
+/// honour.
+pub const SEND_TYPES: &str = "send_types";
+
+/// The `host` key naming the Event I/O Processors a case needs run; this
+/// runner runs none, so a case naming one fails naming each.
+pub const EVENT_IO_PROCESSORS: &str = "event_io_processors";
 
 /// What a drive answers for one case, and what the run records for it.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -49,10 +59,16 @@ pub enum Outcome {
 /// is sent, as the reference's harness sends only the name.
 ///
 /// The reference's harness also fails a case whose active leaf has no id
-/// (`assert_every_leaf_named/2`); the public read leaves such a state out,
-/// so it cannot be counted here, and every state of every scion source
-/// carries an id (the apparatus test
-/// `every_scion_state_carries_an_id` holds the copy to that).
+/// (`assert_every_leaf_named/2`): the leaf read leaves such a state out, so
+/// an anonymous leaf could pass unseen while the named ones match. Each
+/// comparison makes the same check first, by count: the leaves counted
+/// ([`State::active_leaf_count`], or [`statifier::Done::active_leaf_count`]
+/// once the chart has stopped) against the ids read.
+///
+/// A case's `host` object is honoured as `RATCHET.md` says: its
+/// [`SEND_TYPES`] are registered in the options the chart starts with, and
+/// a case carrying any other key, the Event I/O Processors of
+/// [`EVENT_IO_PROCESSORS`] among them, fails naming what it needs.
 ///
 /// It drives the suites in [`DRIVEN_SUITES`]; every other case fails with
 /// [`NOT_DRIVEN`]. A case that does not compile, that the driver refuses,
@@ -79,9 +95,10 @@ fn drive_case(item: &Value) -> Result<(), String> {
         let messages: Vec<&str> = refusals.iter().map(|refusal| refusal.message()).collect();
         format!("the source does not compile: {}", messages.join("; "))
     })?;
+    let options = options(item)?;
     let expected = configuration(item.get("initial_configuration"))?;
     let started = machine
-        .start(Options::new(id_of(item).unwrap_or("")))
+        .start(options)
         .map_err(|error| format!("the driver refused the start: {error}"))?;
     let mut state = reach(&started.state, 0, &expected)?;
     compare(&state, &expected, "the initial configuration")?;
@@ -110,6 +127,49 @@ fn drive_case(item: &Value) -> Result<(), String> {
         )?;
     }
     Ok(())
+}
+
+/// The options a case starts with: its id as the session id, and the send
+/// types its `host` object registers. A `host` key the drive does not
+/// honour is the reason the case fails.
+fn options(item: &Value) -> Result<Options, String> {
+    let mut options = Options::new(id_of(item).unwrap_or(""));
+    let Some(host) = item.get("host") else {
+        return Ok(options);
+    };
+    let host = host.as_object().ok_or("the case's host is not an object")?;
+    for (key, value) in host {
+        match key.as_str() {
+            SEND_TYPES => {
+                options.send_types = names(value)
+                    .ok_or("the case's host send_types is not a list of names")?
+                    .into_iter()
+                    .collect();
+            }
+            EVENT_IO_PROCESSORS => {
+                let processors = names(value).unwrap_or_default();
+                return Err(format!(
+                    "the case needs the Event I/O Processor {}, which this runner does not run",
+                    processors.join(", ")
+                ));
+            }
+            other => {
+                return Err(format!(
+                    "the case needs the host key {other}, which this runner does not honour"
+                ));
+            }
+        }
+    }
+    Ok(options)
+}
+
+/// The strings of a list, `None` when it is not a list of strings.
+fn names(value: &Value) -> Option<Vec<String>> {
+    value
+        .as_array()?
+        .iter()
+        .map(|item| item.as_str().map(str::to_owned))
+        .collect()
 }
 
 /// The state once `expected` is reached or the deadline after `since` has
@@ -145,9 +205,25 @@ fn leaves(state: &State) -> Vec<String> {
     )
 }
 
-/// Nothing when the active leaf states are `expected`; else the reason.
+/// How many active leaf states there are, a leaf with no id counted too: a
+/// stopped chart's are the leaves it stopped in, as [`leaves`] reads them.
+fn leaf_count(state: &State) -> usize {
+    state
+        .done()
+        .map_or_else(|| state.active_leaf_count(), |done| done.active_leaf_count)
+}
+
+/// Nothing when every active leaf has an id and the active leaf states are
+/// `expected`; else the reason. The count is checked first, as the
+/// reference's `assert_every_leaf_named/2` is.
 fn compare(state: &State, expected: &[String], at: &str) -> Result<(), String> {
     let found = leaves(state);
+    let unnamed = leaf_count(state).saturating_sub(found.len());
+    if unnamed > 0 {
+        return Err(format!(
+            "{at}: {unnamed} active leaf state(s) have no id; the expectation {found:?} cannot name them"
+        ));
+    }
     if found == expected {
         return Ok(());
     }

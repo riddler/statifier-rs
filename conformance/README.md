@@ -88,17 +88,23 @@ closes) or one its per-suite arms forbid, hands every case to the drive,
 requires every case this registry claims to pass, and reports per suite how
 many cases are not yet claimed. The drive (`drive` in
 `tests/conformance/runner.rs`) is the one place the crate is plugged into the
-run, through the crate's public surface alone. It drives the scion suite as
-the reference's harness drives a scion case: it compiles the source, starts
-the chart, and compares the active leaf states (`State::active_leaf_states`,
-or `Done::active_leaf_states` once the chart has stopped, as the reference's
+run, through the crate's public surface alone. It drives the scion and w3c
+suites as the reference's harness drives a case: it compiles the source,
+starts the chart with the send types the case's `host` object registers,
+and compares the active leaf states (`State::active_leaf_states`, or
+`Done::active_leaf_states` once the chart has stopped, as the reference's
 harness reads its done effect) with the case's initial configuration
 and, after each step's event, with that step's configuration, settling the
 virtual clock before each event and waiting up to the configuration
 deadline after it
-(`tests/conformance/clock.rs`). Every case of the other suites fails with
-the reason that it is not driven. The registry check prints, for the scion
-suite, how many cases pass, and the gap list: every case of every suite the
+(`tests/conformance/clock.rs`). Each comparison first counts the active
+leaves (`State::active_leaf_count`, or `Done::active_leaf_count`) against
+the ids read, so a case whose active leaf has no id fails, as the
+reference's harness fails it. A case whose `host` object needs what the
+drive does not honour, such as an Event I/O Processor it does not run,
+fails naming it. Every case of the statifier suite fails with the reason
+that it is not driven. The registry check prints, for each driven suite,
+how many cases pass, and the gap list: every case of every suite the
 registry does not claim, in the reference's order, with its conformance
 class when the corpus gives one, the features it needs, the keys of its
 `host` object when it has one, and whether it passes or why it fails.
