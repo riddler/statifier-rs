@@ -202,6 +202,15 @@ A host registers the send types it delivers itself in
 crate calls no host code. The host delivers the message however it likes
 and, if the answer is an event for the chart, passes it back with `step`.
 
+The chart's `_ioprocessors` holds an entry for each registered type, which
+the host supplies in `Options::ioprocessors`, by type: an
+`IoProcessorEntry::Fixed` map written as it is, or an
+`IoProcessorEntry::SessionLocation` base address, which writes a map whose
+`location` is the address, `/` and the session's id, so an invoked child's
+entry names the child. A registered type with no entry there has an empty
+map, and an entry for a type not registered is refused with
+`Error::UnregisteredEntries`.
+
 ```rust
 use statifier::{Effect, Options};
 
@@ -232,13 +241,106 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 With the `serde` feature an effect serializes as a map whose `kind` is the
 variant in snake case beside its fields in camel case.
 
-## The HTTP transport
+## The Basic HTTP Event I/O Processor
 
-The optional `basichttp` feature, off by default, defines the seam a Basic
-HTTP send will go through. The crate opens no socket and ships no transport
-(the standard library has no HTTP client), and the feature adds no
-dependency: a host implements `statifier::basichttp::Transport` over a
-client it already has.
+The optional `basichttp` feature, off by default, adds the specification's
+Basic HTTP Event I/O Processor as host-side code over the driver, and the
+seam its sends go through. The crate opens no socket and ships no
+transport (the standard library has no HTTP client), and the feature adds
+no dependency: a host implements `statifier::basichttp::Transport` over a
+client it already has, and passes it to each call that sends.
+
+- `basichttp::register(options, base_address)` registers the processor
+  under its URI (`basichttp::URI`) and its short form (`basichttp`), each
+  with the `_ioprocessors` entry whose `location` is the base address the
+  host's front answers at, `/` and the session's id.
+- `basichttp::deliver(&state, &send, &transport)` takes a send of either
+  spelling the driver handed the host (bare, or inside the `Effect::Child`
+  that carried a child's), builds the request the reference builds and
+  hands it to the transport once. A 2xx response is
+  `Delivery::Delivered`. A send with no target (no request is made), a
+  transport error, and any other status, one outside 100 to 599 included,
+  are `Delivery::Missed`: the miss is reported with
+  `State::report_send_failed`, and the delivery carries the report's new
+  state, or none when the sending session has stopped or halted. A delayed
+  send is delivered when the host calls, once its delay has passed.
+- The request is a `POST` to the send's target. Data that is a map, the
+  `namelist` and `<param>` values or a `<content>` that is a map, is an
+  `application/x-www-form-urlencoded` body: `_scxmleventname` first, then
+  the members in key order. No data sends `_scxmleventname` alone. Other
+  `<content>` is a `text/plain` body, with `_scxmleventname` as a query
+  parameter. Every byte outside letters, digits, `-`, `.`, `_` and `~` is
+  percent-encoded, a space as `+`; a value is a string as it is, a number
+  or a boolean as its literal, null as `null`, undefined as the empty
+  string, and a list or a map as JSON text. The `scxml-send-key` header
+  carries the reference's dedup key: the session, the send id, the
+  macrostep, microstep and round, the content index, the owner and the
+  ordinal, joined by `/`.
+- `basichttp::decode(&request)` reads a request the host's front received
+  into a `Received`, the `name` and `data` of an external event the host
+  passes to `State::step`. Only `POST` is taken. The name is the first
+  `_scxmleventname`, the query's before the body's, else `HTTP.POST`. A
+  form body and the query give the other parameters as a map, each value
+  read as `<content>` text is; any other body is the data itself. A refusal
+  is a `DecodeError`: `MethodNotAllowed`, `NotUtf8` naming the query or the
+  body, or `MalformedSendKey`.
+
+```rust
+use statifier::basichttp::{self, Delivery, Request, Response, Transport, TransportError};
+use statifier::{Effect, Options};
+use std::cell::RefCell;
+
+// The host's own client goes here; this one keeps each request in memory.
+struct Kept(RefCell<Vec<Request>>);
+
+impl Transport for Kept {
+    fn send(&self, request: Request) -> Result<Response, TransportError> {
+        self.0.borrow_mut().push(request);
+        Ok(Response::new(204, Vec::new(), Vec::new()))
+    }
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let machine = statifier::compile(
+        r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" initial="a">
+             <state id="a">
+               <onentry>
+                 <send event="e.go" type="basichttp"
+                       targetexpr="_ioprocessors['basichttp']['location']">
+                   <param name="n" expr="2"/>
+                 </send>
+               </onentry>
+               <transition event="e.go" cond="_event.data.n == 2" target="b"/>
+             </state>
+             <final id="b"/>
+           </scxml>"#,
+    )
+    .map_err(|refusals| format!("{refusals:?}"))?;
+    let options = basichttp::register(Options::new("s-1"), "http://localhost:8080/scxml");
+    let started = machine.start(options)?;
+    let send = started
+        .effects
+        .iter()
+        .find(|effect| matches!(effect, Effect::Send { .. }))
+        .ok_or("the send is handed to the host")?;
+
+    let transport = Kept(RefCell::new(Vec::new()));
+    let delivery = basichttp::deliver(&started.state, send, &transport)?;
+    assert!(matches!(delivery, Delivery::Delivered { .. }));
+
+    let request = transport.0.borrow()[0].clone();
+    assert_eq!(request.address, "http://localhost:8080/scxml/s-1");
+    assert_eq!(request.body, b"_scxmleventname=e.go&n=2".to_vec());
+
+    // The host's front receives it and steps the session it names.
+    let received = basichttp::decode(&request)?;
+    let moved = started.state.step(&received.name, received.data)?;
+    assert!(moved.state.done().is_some());
+    Ok(())
+}
+```
+
+The seam's own values:
 
 - `Request` holds a `method`, an `address` (the absolute URL), `headers` as
   name and value pairs in the order sent (a name may repeat) and `body`
@@ -514,8 +616,9 @@ made a synchronous value step:
   with `Error::InvalidDuration`, the driver's name for what the reference
   calls an invalid delay.
 - A send of a registered type is answered as an effect and nothing more:
-  the driver calls no host processor, and writes an empty `_ioprocessors`
-  entry for each registered type.
+  the driver calls no host processor. A registered type's `_ioprocessors`
+  entry is the data the host gives in `Options::ioprocessors`, where the
+  reference asks the type's processor module for it.
 - `State::report_send_failed` refuses a report once the sending session
   has stopped with `Error::NotRunning`, where the reference's session
   drops it silently.
@@ -560,7 +663,10 @@ It differs in these parts of a position, the reference's
 - The registered send types of an imported state are the entries of its
   datamodel's `_ioprocessors` other than the SCXML Event I/O Processor's,
   as `Machine::start` writes them; the reference's driver stamps them
-  again from its own options.
+  again from its own options. The imported state keeps the entries its
+  datamodel carries, but holds none of the host's `Options::ioprocessors`,
+  so a child it starts has an empty entry for each type; the reference's
+  child asks each processor again for its own session.
 - With the `serde` feature, a JSON position missing a key or holding a
   value of the wrong shape is refused by the deserializer, naming the
   first it meets; the reference names every missing key at once.
@@ -570,6 +676,36 @@ It differs in these parts of a position, the reference's
   negative one; the reference takes any integer. With the `serde` feature
   the reader refuses a negative one, and one above the 64-bit signed range
   too, since every value is read through the predicator crate's reader.
+
+It differs in these parts of the Basic HTTP Event I/O Processor (the
+`basichttp` feature), none of which any corpus document holds:
+
+- A map of more than 32 members is written in key order, as a smaller one
+  is, whether form fields or JSON text; the reference's runtime walks such
+  a map in its own hash order.
+- A list or a map holding a value with no JSON form (a date, an instant, a
+  duration, a map key that is not a string, a float that is not finite) is
+  written as JSON text all the same: a date, an instant or a duration as
+  its tagged encoding (`predicator_rs::tagged`), a key as its text and a
+  float that is not finite as `null`; a date as a whole parameter is its
+  tagged encoding too. The reference writes its runtime's inspect text,
+  such as `[1, ~D[2026-08-06]]`.
+- A target or an event name that is not a string is written as text by
+  the parameter rule; the reference's processor fails on one.
+- The event a host steps carries no `origintype`, since `State::step` takes
+  a name and data alone, so `_event.origintype` reads undefined; the
+  reference's decoded event carries the processor's URI.
+- A delayed send is the host's to time: `deliver` posts when it is called.
+  The reference's processor holds the delay in a timer process of its own.
+- The transport is passed to each `deliver` call and never kept; the
+  reference names a transport module in the registration, with a default
+  over its runtime's HTTP client.
+- A status outside the 100 to 599 HTTP defines, which the reference's
+  transport contract excludes, is a miss as any status outside 2xx is.
+- `decode` reads a `Request`: the query is what follows the address's
+  first `?` up to a `#`, and the first `content-type` and
+  `scxml-send-key` header, by name in any case, count. The reference's
+  front hands its decoder those four values already separated.
 
 It differs in this part of its conformance check, which no user of the
 crate sees:

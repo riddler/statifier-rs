@@ -50,9 +50,10 @@
 //! # Features and compatibility
 //!
 //! The optional `basichttp` feature, off by default, adds the `basichttp`
-//! module: the `Transport` trait a host implements, with the request,
-//! response and error values it exchanges, for a Basic HTTP send to go
-//! through. It adds no dependency and the crate ships no transport.
+//! module: the Basic HTTP Event I/O Processor a host registers, delivers a
+//! send through and decodes a received request with, and the `Transport`
+//! trait it implements, with the request, response and error values it
+//! exchanges. It adds no dependency and the crate ships no transport.
 //!
 //! The `serde` feature, off by default, implements `Serialize` and
 //! `Deserialize` for a [`Position`], an [`Effect`] and a [`Done`], with the
@@ -109,8 +110,8 @@ struct BasicHttpModuleIsFeatureGated;
 
 pub use accepts::AcceptsCheck;
 pub use driver::{
-    ActiveInvocation, Done, Error, ExportError, ImportError, Moved, Options, Position, RoundBudget,
-    State, Status,
+    ActiveInvocation, Done, Error, ExportError, ImportError, IoProcessorEntry, Moved, Options,
+    Position, RoundBudget, State, Status,
 };
 pub use effect::{BlockOwner, Effect, PathSegment};
 pub use machine::Machine;

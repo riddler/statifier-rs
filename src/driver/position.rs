@@ -451,6 +451,7 @@ impl Machine {
         let mut state = State::fresh(
             core,
             session_id,
+            BTreeMap::new(),
             position.max_macrostep_rounds,
             position.trace,
         );
