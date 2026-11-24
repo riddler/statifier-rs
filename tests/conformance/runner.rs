@@ -22,9 +22,41 @@ pub const NOT_DRIVEN: &str = "not driven: this runner drives the scion and w3c s
 /// honour.
 pub const SEND_TYPES: &str = "send_types";
 
-/// The `host` key naming the Event I/O Processors a case needs run; this
-/// runner runs none, so a case naming one fails naming each.
+/// The `host` key naming the Event I/O Processors a case needs. Each is
+/// looked up in the [`Host`] the drive was given: a case whose processors
+/// are all provided runs, and one naming a processor the host does not
+/// provide fails naming it.
 pub const EVENT_IO_PROCESSORS: &str = "event_io_processors";
+
+/// The host object a drive builds a case's run against: the table of Event
+/// I/O Processors this runner provides, by the location the corpus names
+/// them with. The runner provides none in this round; a later round
+/// registers the Basic HTTP processor here. The crate has no processor
+/// hook yet, so a provided processor is a name the case is allowed to
+/// carry, and its behaviour is the provider's to wire when it registers.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Host {
+    provided: BTreeSet<String>,
+}
+
+impl Host {
+    /// The host the runner drives every case with: no processor provided.
+    pub fn runner() -> Self {
+        Self::default()
+    }
+
+    /// A host providing `processors`, for a stand-in registered by a test.
+    pub fn providing(processors: &[&str]) -> Self {
+        Self {
+            provided: processors.iter().map(|name| (*name).to_owned()).collect(),
+        }
+    }
+
+    /// Whether `processor` is provided.
+    pub fn provides(&self, processor: &str) -> bool {
+        self.provided.contains(processor)
+    }
+}
 
 /// What a drive answers for one case, and what the run records for it.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -66,19 +98,26 @@ pub enum Outcome {
 /// once the chart has stopped) against the ids read.
 ///
 /// A case's `host` object is honoured as `RATCHET.md` says: its
-/// [`SEND_TYPES`] are registered in the options the chart starts with, and
-/// a case carrying any other key, the Event I/O Processors of
-/// [`EVENT_IO_PROCESSORS`] among them, fails naming what it needs.
+/// [`SEND_TYPES`] are registered in the options the chart starts with, its
+/// [`EVENT_IO_PROCESSORS`] are routed through the [`Host`] (a processor the
+/// host does not provide fails the case naming it), and a case carrying any
+/// other key fails naming what it needs.
 ///
 /// It drives the suites in [`DRIVEN_SUITES`]; every other case fails with
 /// [`NOT_DRIVEN`]. A case that does not compile, that the driver refuses,
 /// or whose configuration disagrees fails with the reason.
 pub fn drive(item: &Value) -> Outcome {
+    drive_with(item, &Host::runner())
+}
+
+/// [`drive`] against `host`: the table of Event I/O Processors the case's
+/// `host` object is routed through.
+pub fn drive_with(item: &Value, host: &Host) -> Outcome {
     let suite = item.get("suite").and_then(Value::as_str).unwrap_or("");
     if !DRIVEN_SUITES.contains(&suite) {
         return Outcome::Fail(NOT_DRIVEN.to_owned());
     }
-    match drive_case(item) {
+    match drive_case(item, host) {
         Ok(()) => Outcome::Pass,
         Err(reason) => Outcome::Fail(reason),
     }
@@ -86,7 +125,7 @@ pub fn drive(item: &Value) -> Outcome {
 
 /// The start and every step, compared in turn; the reason at the first
 /// that disagrees.
-fn drive_case(item: &Value) -> Result<(), String> {
+fn drive_case(item: &Value, host: &Host) -> Result<(), String> {
     let source = item
         .get("source")
         .and_then(Value::as_str)
@@ -95,7 +134,7 @@ fn drive_case(item: &Value) -> Result<(), String> {
         let messages: Vec<&str> = refusals.iter().map(|refusal| refusal.message()).collect();
         format!("the source does not compile: {}", messages.join("; "))
     })?;
-    let options = options(item)?;
+    let options = options(item, host)?;
     let expected = configuration(item.get("initial_configuration"))?;
     let started = machine
         .start(options)
@@ -130,9 +169,9 @@ fn drive_case(item: &Value) -> Result<(), String> {
 }
 
 /// The options a case starts with: its id as the session id, and the send
-/// types its `host` object registers. A `host` key the drive does not
-/// honour is the reason the case fails.
-fn options(item: &Value) -> Result<Options, String> {
+/// types its `host` object registers. A processor `provided` does not hold,
+/// or a `host` key the drive does not honour, is the reason the case fails.
+fn options(item: &Value, provided: &Host) -> Result<Options, String> {
     let mut options = Options::new(id_of(item).unwrap_or(""));
     let Some(host) = item.get("host") else {
         return Ok(options);
@@ -147,11 +186,19 @@ fn options(item: &Value) -> Result<Options, String> {
                     .collect();
             }
             EVENT_IO_PROCESSORS => {
-                let processors = names(value).unwrap_or_default();
-                return Err(format!(
-                    "the case needs the Event I/O Processor {}, which this runner does not run",
-                    processors.join(", ")
-                ));
+                let processors = names(value)
+                    .ok_or("the case's host event_io_processors is not a list of names")?;
+                let missing: Vec<&str> = processors
+                    .iter()
+                    .map(String::as_str)
+                    .filter(|name| !provided.provides(name))
+                    .collect();
+                if !missing.is_empty() {
+                    return Err(format!(
+                        "the case needs the Event I/O Processor {}, which this runner does not run",
+                        missing.join(", ")
+                    ));
+                }
             }
             other => {
                 return Err(format!(
