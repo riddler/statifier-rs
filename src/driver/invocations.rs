@@ -15,7 +15,7 @@
 #[cfg(test)]
 mod tests;
 
-use super::{Call, Invocation, Mail, RoundBudget, State};
+use super::{Call, Invocation, Mail, RoundBudget, State, ioprocessor_entries};
 use crate::datamodel::system_variables::{EventType, SCXML_EVENT_PROCESSOR, scxml_location};
 use crate::effect::Effect;
 use crate::interpreter::{self, Event, Routes, StartOptions, is_scxml_type};
@@ -73,10 +73,8 @@ impl Call {
         };
         let session_id = format!("{}.{invoke_id}", self.state.session_id);
         let send_types = self.state.core.send_types.clone();
-        let ioprocessors = send_types
-            .iter()
-            .map(|send_type| (send_type.as_str(), Value::Map(Map::new())))
-            .collect();
+        let entries = self.state.ioprocessors.clone();
+        let ioprocessors = ioprocessor_entries(&send_types, &entries, &session_id);
         let started = interpreter::initialize(
             &machine,
             StartOptions {
@@ -92,7 +90,13 @@ impl Call {
                 max_macrostep_rounds: RoundBudget::default().interpreter(),
             },
         );
-        let mut child = State::fresh(started.state, session_id, RoundBudget::default(), false);
+        let mut child = State::fresh(
+            started.state,
+            session_id,
+            entries,
+            RoundBudget::default(),
+            false,
+        );
         child.invoked_as = Some(invoke_id.to_owned());
         self.state.invocations.insert(
             invoke_id.to_owned(),

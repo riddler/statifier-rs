@@ -188,9 +188,16 @@ pub struct Options {
     pub datamodel: Map,
     /// The send types the host delivers itself. A `<send>` of one of them
     /// is answered as an effect and never routed or scheduled here, delayed
-    /// or not; `_ioprocessors` holds an empty entry for each. A built-in
+    /// or not; `_ioprocessors` holds an entry for each, the one
+    /// [`Options::ioprocessors`] gives it or an empty map. A built-in
     /// spelling, `scxml` or the SCXML Event I/O Processor's URI, is refused.
     pub send_types: BTreeSet<String>,
+    /// The `_ioprocessors` entry of a registered send type, by type: a type
+    /// with none here has an empty map. An entry for a type
+    /// [`Options::send_types`] does not register is refused. An invoked
+    /// child inherits the entries with the types, each written for the
+    /// child's own session.
+    pub ioprocessors: BTreeMap<String, IoProcessorEntry>,
     /// The round budget of each macrostep, and of the two counts one call
     /// spends it on.
     pub round_budget: RoundBudget,
@@ -202,17 +209,91 @@ pub struct Options {
 
 impl Options {
     /// The options for a session with this id, and every other field at its
-    /// default: no starting values, no registered send type, the default
-    /// round budget and no trace.
+    /// default: no starting values, no registered send type and no entry,
+    /// the default round budget and no trace.
     pub fn new(session_id: impl Into<String>) -> Self {
         Options {
             session_id: session_id.into(),
             datamodel: Map::new(),
             send_types: BTreeSet::new(),
+            ioprocessors: BTreeMap::new(),
             round_budget: RoundBudget::default(),
             trace: false,
         }
     }
+}
+
+/// The `_ioprocessors` entry a host supplies for a send type it registers
+/// ([`Options::ioprocessors`]).
+///
+/// ```
+/// use statifier::{IoProcessorEntry, Map, Options, Value};
+///
+/// let machine = statifier::compile(
+///     r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" initial="a">
+///          <state id="a"/>
+///        </scxml>"#,
+/// )
+/// .map_err(|refusals| format!("{refusals:?}"))?;
+/// let mut options = Options::new("s-1");
+/// options.send_types = ["x-fixed", "x-located"].into_iter().map(String::from).collect();
+/// let mut fixed = Map::new();
+/// fixed.insert("queue", Value::from("q1"));
+/// options.ioprocessors.insert("x-fixed".to_owned(), IoProcessorEntry::Fixed(fixed));
+/// options.ioprocessors.insert(
+///     "x-located".to_owned(),
+///     IoProcessorEntry::SessionLocation("http://localhost:8080/scxml".to_owned()),
+/// );
+/// let started = machine.start(options)?;
+/// # let _ = started;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+///
+/// The chart then reads `_ioprocessors['x-fixed']['queue']` as `q1` and
+/// `_ioprocessors['x-located']['location']` as
+/// `http://localhost:8080/scxml/s-1`.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
+pub enum IoProcessorEntry {
+    /// This map, written as it is for every session.
+    Fixed(Map),
+    /// A map whose one member, `location`, is this base address, a `/` and
+    /// the id of the session it is written for, so an invoked child's entry
+    /// names the child.
+    SessionLocation(String),
+}
+
+impl IoProcessorEntry {
+    /// The entry as the session `session_id` reads it; an owned copy.
+    fn for_session(&self, session_id: &str) -> Value {
+        match self {
+            IoProcessorEntry::Fixed(map) => Value::Map(map.clone()),
+            IoProcessorEntry::SessionLocation(base) => {
+                let mut map = Map::new();
+                map.insert("location", Value::from(format!("{base}/{session_id}")));
+                Value::Map(map)
+            }
+        }
+    }
+}
+
+/// Each registered type's `_ioprocessors` entry, written for the session
+/// `session_id`: the one `entries` gives it, or an empty map.
+fn ioprocessor_entries(
+    send_types: &BTreeSet<String>,
+    entries: &BTreeMap<String, IoProcessorEntry>,
+    session_id: &str,
+) -> Map {
+    send_types
+        .iter()
+        .map(|send_type| {
+            let entry = entries.get(send_type).map_or_else(
+                || Value::Map(Map::new()),
+                |entry| entry.for_session(session_id),
+            );
+            (send_type.as_str(), entry)
+        })
+        .collect()
 }
 
 /// Why a driver call was refused.
@@ -233,6 +314,13 @@ pub enum Error {
     #[non_exhaustive]
     BuiltInSendTypes {
         /// The built-in spellings named, sorted.
+        types: Vec<String>,
+    },
+    /// [`Options::ioprocessors`] gives an entry for a type
+    /// [`Options::send_types`] does not register.
+    #[non_exhaustive]
+    UnregisteredEntries {
+        /// The types named, sorted.
         types: Vec<String>,
     },
     /// A macrostep, or a call, spent its round budget and halted the chart:
@@ -257,6 +345,11 @@ impl fmt::Display for Error {
             Error::BuiltInSendTypes { types } => write!(
                 formatter,
                 "built-in send types cannot be registered: {}",
+                types.join(", ")
+            ),
+            Error::UnregisteredEntries { types } => write!(
+                formatter,
+                "an _ioprocessors entry names a send type not registered: {}",
                 types.join(", ")
             ),
             Error::Halted => formatter.write_str("a spent round budget has halted the chart"),
@@ -352,6 +445,9 @@ struct Delivery {
 pub struct State {
     core: MachineState,
     session_id: String,
+    /// The host's `_ioprocessors` entries, by type, which an invoked child
+    /// inherits; empty for a state imported from a position.
+    ioprocessors: BTreeMap<String, IoProcessorEntry>,
     round_budget: RoundBudget,
     trace: bool,
     now_ms: u64,
@@ -409,12 +505,14 @@ impl State {
     fn fresh(
         core: MachineState,
         session_id: String,
+        ioprocessors: BTreeMap<String, IoProcessorEntry>,
         round_budget: RoundBudget,
         trace: bool,
     ) -> Self {
         State {
             core,
             session_id,
+            ioprocessors,
             round_budget,
             trace,
             now_ms: 0,
@@ -437,7 +535,8 @@ impl Machine {
     /// with every event it sent itself taken.
     ///
     /// Refused with [`Error::BuiltInSendTypes`] when `options` registers a
-    /// built-in send type.
+    /// built-in send type, then with [`Error::UnregisteredEntries`] when it
+    /// gives an `_ioprocessors` entry for a type it does not register.
     pub fn start(&self, options: Options) -> Result<Moved, Error> {
         let built_in: Vec<String> = options
             .send_types
@@ -448,11 +547,22 @@ impl Machine {
         if !built_in.is_empty() {
             return Err(Error::BuiltInSendTypes { types: built_in });
         }
-        let ioprocessors = options
-            .send_types
-            .iter()
-            .map(|send_type| (send_type.as_str(), Value::Map(Map::new())))
+        let unregistered: Vec<String> = options
+            .ioprocessors
+            .keys()
+            .filter(|send_type| !options.send_types.contains(*send_type))
+            .cloned()
             .collect();
+        if !unregistered.is_empty() {
+            return Err(Error::UnregisteredEntries {
+                types: unregistered,
+            });
+        }
+        let ioprocessors = ioprocessor_entries(
+            &options.send_types,
+            &options.ioprocessors,
+            &options.session_id,
+        );
         let routes = Routes {
             sessions: BTreeSet::from([options.session_id.clone()]),
             ..Routes::default()
@@ -471,6 +581,7 @@ impl Machine {
         let mut call = Call::open(State::fresh(
             started.state,
             options.session_id,
+            options.ioprocessors,
             options.round_budget,
             options.trace,
         ));
@@ -586,27 +697,11 @@ impl State {
     pub fn report_send_failed(&self, send: &Effect, reason: Option<&str>) -> Result<Moved, Error> {
         // The reason is the host's own record; no field of the event holds it.
         let _ = reason;
-        let (path, send) = match send {
-            Effect::Child { session_id, effect } => (
-                self.path_to(session_id).ok_or(Error::NotRunning)?,
-                effect.as_ref(),
-            ),
-            send => (Vec::new(), send),
-        };
-        let (send_type, send_id) = match send {
-            Effect::Send {
-                send_type, send_id, ..
-            }
-            | Effect::SendDelayed {
-                send_type, send_id, ..
-            } => (send_type, send_id),
+        let (path, sender, send) = self.handed(send)?;
+        let send_id = match send {
+            Effect::Send { send_id, .. } | Effect::SendDelayed { send_id, .. } => send_id,
             _ => return Err(Error::NotAHandedSend),
         };
-        let sender = self.session_at(&path).ok_or(Error::NotRunning)?;
-        if !matches!(send_type, Some(Value::String(send_type)) if sender.core.send_types.contains(send_type))
-        {
-            return Err(Error::NotAHandedSend);
-        }
         if !sender.core.running {
             return Err(Error::NotRunning);
         }
@@ -618,6 +713,40 @@ impl State {
         let mut call = Call::open(self.clone());
         call.fail_at(&path, event);
         Ok(call.close())
+    }
+
+    /// A send handed to the host, as [`State::report_send_failed`] takes
+    /// it: the path to the sending session, that session and the bare send.
+    /// Refused with [`Error::NotRunning`] when a child it names is not a
+    /// live invocation, and with [`Error::NotAHandedSend`] for an effect
+    /// that is not a send, or a send of a type the sender did not register.
+    fn handed<'a>(&self, send: &'a Effect) -> Result<(Vec<String>, &State, &'a Effect), Error> {
+        let (path, send) = match send {
+            Effect::Child { session_id, effect } => (
+                self.path_to(session_id).ok_or(Error::NotRunning)?,
+                effect.as_ref(),
+            ),
+            send => (Vec::new(), send),
+        };
+        let send_type = match send {
+            Effect::Send { send_type, .. } | Effect::SendDelayed { send_type, .. } => send_type,
+            _ => return Err(Error::NotAHandedSend),
+        };
+        let sender = self.session_at(&path).ok_or(Error::NotRunning)?;
+        if !matches!(send_type, Some(Value::String(send_type)) if sender.core.send_types.contains(send_type))
+        {
+            return Err(Error::NotAHandedSend);
+        }
+        Ok((path, sender, send))
+    }
+
+    /// The id of the session that made a send handed to the host, and the
+    /// bare send, refused as [`State::report_send_failed`] refuses an
+    /// effect that is not one.
+    #[cfg(feature = "basichttp")]
+    pub(crate) fn handed_send<'a>(&self, send: &'a Effect) -> Result<(&str, &'a Effect), Error> {
+        let (_, sender, send) = self.handed(send)?;
+        Ok((sender.session_id.as_str(), send))
     }
 
     /// The invoke ids from this session down to the live session named

@@ -928,3 +928,137 @@ fn a_failed_send_report_refuses_an_effect_that_is_not_a_handed_send() {
     }
     assert!(Error::NotAHandedSend.to_string().contains("registered"));
 }
+
+// A chart that logs the `_ioprocessors` entry of `x-a` and `x-b`, then
+// invokes a child that logs its own.
+const ENTRIES: &str = r#"<state id="a">
+    <onentry>
+      <log label="a" expr="_ioprocessors['x-a']"/>
+      <log label="b" expr="_ioprocessors['x-b']"/>
+    </onentry>
+    <invoke id="i1"><content><scxml version="1.0" initial="c"><state id="c"><onentry>
+      <log label="child-a" expr="_ioprocessors['x-a']"/>
+      <log label="child-b" expr="_ioprocessors['x-b']"/>
+    </onentry></state></scxml></content></invoke>
+  </state>"#;
+
+fn entry_logs(effects: &[Effect]) -> Vec<(String, Value)> {
+    effects
+        .iter()
+        .flat_map(|effect| match effect {
+            Effect::Child { effect, .. } => logs(std::slice::from_ref(&**effect)),
+            other => logs(std::slice::from_ref(other)),
+        })
+        .collect()
+}
+
+fn location(text: &str) -> Value {
+    let mut map = Map::new();
+    map.insert("location", Value::from(text));
+    Value::Map(map)
+}
+
+// Sabotage: with every registered type's entry written empty, as before
+// hosts could supply one, the `a` and `b` rows go red.
+#[test]
+fn a_host_supplies_the_ioprocessors_entry_of_each_registered_type() {
+    let mut fixed = Map::new();
+    fixed.insert("queue", text("q1"));
+    let mut options = Options::new("s-1");
+    options.send_types = ["x-a", "x-b", "x-c"]
+        .into_iter()
+        .map(String::from)
+        .collect();
+    options
+        .ioprocessors
+        .insert("x-a".to_owned(), IoProcessorEntry::Fixed(fixed.clone()));
+    options.ioprocessors.insert(
+        "x-b".to_owned(),
+        IoProcessorEntry::SessionLocation("http://h/base".to_owned()),
+    );
+    let started = machine(r#" initial="a""#, ENTRIES)
+        .start(options.clone())
+        .expect("a start");
+    assert_eq!(
+        entry_logs(&started.effects),
+        vec![
+            ("a".to_owned(), Value::Map(fixed.clone())),
+            ("b".to_owned(), location("http://h/base/s-1")),
+            ("child-a".to_owned(), Value::Map(fixed)),
+            ("child-b".to_owned(), location("http://h/base/s-1.i1")),
+        ]
+    );
+    let position = started.state.export_position().expect("an export");
+    let Some(Value::Map(entries)) = position.datamodel.get(&Key::from("_ioprocessors")) else {
+        panic!("an _ioprocessors map");
+    };
+    assert_eq!(
+        entries.get(&Key::from("x-c")),
+        Some(&Value::Map(Map::new()))
+    );
+    // The options the host passed are its own: start takes them by value,
+    // and the copy it kept is as it was.
+    assert_eq!(options.ioprocessors.len(), 2);
+}
+
+// Sabotage: with the unregistered entry dropped silently, start answers a
+// chart and this goes red.
+#[test]
+fn an_entry_for_a_type_not_registered_is_refused() {
+    let mut options = Options::new("s-1");
+    options.send_types = ["x-a"].into_iter().map(String::from).collect();
+    for send_type in ["x-z", "scxml", "x-y"] {
+        options
+            .ioprocessors
+            .insert(send_type.to_owned(), IoProcessorEntry::Fixed(Map::new()));
+    }
+    let refused = machine(r#" initial="a""#, r#"<state id="a"/>"#)
+        .start(options.clone())
+        .map(|_| ())
+        .unwrap_err();
+    assert_eq!(
+        refused,
+        Error::UnregisteredEntries {
+            types: vec!["scxml".to_owned(), "x-y".to_owned(), "x-z".to_owned()]
+        }
+    );
+    assert_eq!(
+        refused.to_string(),
+        "an _ioprocessors entry names a send type not registered: scxml, x-y, x-z"
+    );
+    options.send_types.insert("scxml".to_owned());
+    assert!(matches!(
+        machine(r#" initial="a""#, r#"<state id="a"/>"#).start(options),
+        Err(Error::BuiltInSendTypes { .. })
+    ));
+}
+
+// A state imported from a position keeps the entries its datamodel carries
+// and holds none of the host's to give a child. Sabotage: with the import
+// inventing an entry for a child, the `child-b` row reads a location.
+#[test]
+fn an_imported_state_gives_a_child_empty_entries() {
+    let mut options = Options::new("s-1");
+    options.send_types = ["x-a", "x-b"].into_iter().map(String::from).collect();
+    options.ioprocessors.insert(
+        "x-b".to_owned(),
+        IoProcessorEntry::SessionLocation("http://h/base".to_owned()),
+    );
+    let chart = machine(
+        r#" initial="w""#,
+        &format!(r#"<state id="w"><transition event="e.go" target="a"/></state>{ENTRIES}"#),
+    );
+    let started = chart.start(options).expect("a start");
+    let position = started.state.export_position().expect("an export");
+    let imported = chart.import_position(&position).expect("an import");
+    let moved = imported.step("e.go", Value::Undefined).expect("a step");
+    assert_eq!(
+        entry_logs(&moved.effects),
+        vec![
+            ("a".to_owned(), Value::Map(Map::new())),
+            ("b".to_owned(), location("http://h/base/s-1")),
+            ("child-a".to_owned(), Value::Map(Map::new())),
+            ("child-b".to_owned(), Value::Map(Map::new())),
+        ]
+    );
+}
