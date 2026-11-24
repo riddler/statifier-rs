@@ -73,8 +73,10 @@ pub enum Effect {
         /// The index of the executable-content node that made the write;
         /// `None` for a write made outside executable content.
         content_index: Option<usize>,
-        /// The block the write ran in; `None` for a `<data>` binding and for
-        /// the value an empty `<finalize>` assigns, which no block makes.
+        /// The block the write belongs to; `None` only for a `<data>`
+        /// binding. The value an empty `<finalize>` assigns carries
+        /// [`BlockOwner::Finalize`], and an `<invoke>`'s `idlocation` write
+        /// will carry an owner of its own once invoke arrives.
         owner: Option<BlockOwner>,
         /// The macrostep counter when it ran.
         macrostep: u64,
