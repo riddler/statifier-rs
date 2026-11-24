@@ -71,7 +71,9 @@
 //! A pending timer still fires: a send to the session itself joins the
 //! external queue, untaken, and a send to the internal queue or to a target
 //! the driver cannot reach is dropped, with nothing run and nothing raised,
-//! as the reference's halted session drops a fired delayed send.
+//! as the reference's halted session drops a fired delayed send. A report
+//! of a failed send ([`State::report_send_failed`]) is refused with
+//! [`Error::Halted`].
 //!
 //! One call also spends the budget on three counts the reference's
 //! session, which never returns, has no need of, each kept at one virtual
@@ -233,6 +235,15 @@ pub enum Error {
         /// The built-in spellings named, sorted.
         types: Vec<String>,
     },
+    /// A macrostep, or a call, spent its round budget and halted the chart:
+    /// [`State::report_send_failed`] takes no report for it.
+    Halted,
+    /// [`State::report_send_failed`] was given an effect that is not a send
+    /// the driver hands the host: an [`Effect::Send`] or an
+    /// [`Effect::SendDelayed`] of a type the sending session registered,
+    /// bare or, for an invoked child's, inside the [`Effect::Child`] that
+    /// names the child.
+    NotAHandedSend,
 }
 
 impl fmt::Display for Error {
@@ -248,6 +259,9 @@ impl fmt::Display for Error {
                 "built-in send types cannot be registered: {}",
                 types.join(", ")
             ),
+            Error::Halted => formatter.write_str("a spent round budget has halted the chart"),
+            Error::NotAHandedSend => formatter
+                .write_str("the effect is not a send of a registered type handed to the host"),
         }
     }
 }
@@ -519,6 +533,117 @@ impl State {
         Ok(call.close())
     }
 
+    /// Reports that the host could not deliver `send`, a send of a
+    /// registered type this driver handed it: the sending session takes
+    /// `error.communication` as a platform event onto its internal queue
+    /// and runs to a stable configuration within the call, then takes its
+    /// external queue as [`State::step`] does.
+    ///
+    /// `send` is the [`Effect::Send`] or [`Effect::SendDelayed`] as the
+    /// host was handed it, or, for an invoked child's send, the
+    /// [`Effect::Child`] carrying it, which reports to that child. The
+    /// event's `sendid` is the send's id, whether the document named the
+    /// send or the id was generated; the event carries no data, and its
+    /// `origin` and `origintype` are unset. The reference also records the
+    /// send's content as the event's cause, which only its traces read;
+    /// this crate answers no trace. `reason` is accepted and written into
+    /// no field of the event, as the reference reads no failure it is
+    /// given.
+    ///
+    /// Refused with [`Error::NotAHandedSend`] for any other effect, or a
+    /// send of a type the sending session did not register; with
+    /// [`Error::NotRunning`] once the sending session has stopped, or when
+    /// the child a report names is not a live invocation; and with
+    /// [`Error::Halted`] while a spent round budget has halted the sending
+    /// session. A refused report queues nothing.
+    ///
+    /// ```
+    /// use statifier::{Effect, Options, Value};
+    ///
+    /// let machine = statifier::compile(
+    ///     r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" initial="a">
+    ///          <state id="a">
+    ///            <onentry><send type="x-host" event="e.out" id="k"/></onentry>
+    ///            <transition event="error.communication" cond="_event.sendid == 'k'" target="b"/>
+    ///          </state>
+    ///          <state id="b"/>
+    ///        </scxml>"#,
+    /// )
+    /// .map_err(|refusals| format!("{refusals:?}"))?;
+    /// let mut options = Options::new("s-1");
+    /// options.send_types = ["x-host"].into_iter().map(String::from).collect();
+    /// let started = machine.start(options)?;
+    /// let send = started
+    ///     .effects
+    ///     .iter()
+    ///     .find(|effect| matches!(effect, Effect::Send { .. }))
+    ///     .ok_or("the send is handed to the host")?;
+    ///
+    /// let reported = started.state.report_send_failed(send, Some("no route"))?;
+    /// assert_eq!(reported.state.configuration(), ["b"]);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn report_send_failed(&self, send: &Effect, reason: Option<&str>) -> Result<Moved, Error> {
+        // The reason is the host's own record; no field of the event holds it.
+        let _ = reason;
+        let (path, send) = match send {
+            Effect::Child { session_id, effect } => (
+                self.path_to(session_id).ok_or(Error::NotRunning)?,
+                effect.as_ref(),
+            ),
+            send => (Vec::new(), send),
+        };
+        let (send_type, send_id) = match send {
+            Effect::Send {
+                send_type, send_id, ..
+            }
+            | Effect::SendDelayed {
+                send_type, send_id, ..
+            } => (send_type, send_id),
+            _ => return Err(Error::NotAHandedSend),
+        };
+        let sender = self.session_at(&path).ok_or(Error::NotRunning)?;
+        if !matches!(send_type, Some(Value::String(send_type)) if sender.core.send_types.contains(send_type))
+        {
+            return Err(Error::NotAHandedSend);
+        }
+        if !sender.core.running {
+            return Err(Error::NotRunning);
+        }
+        if sender.halted {
+            return Err(Error::Halted);
+        }
+        let mut event = Event::platform("error.communication", Value::Undefined);
+        event.sendid = Some(send_id.clone());
+        let mut call = Call::open(self.clone());
+        call.fail_at(&path, event);
+        Ok(call.close())
+    }
+
+    /// The invoke ids from this session down to the live session named
+    /// `session_id`, `None` when no session of the tree is named so.
+    fn path_to(&self, session_id: &str) -> Option<Vec<String>> {
+        if self.session_id == session_id {
+            return Some(Vec::new());
+        }
+        self.invocations.iter().find_map(|(invoke_id, invocation)| {
+            let mut path = invocation.child.path_to(session_id)?;
+            path.insert(0, invoke_id.clone());
+            Some(path)
+        })
+    }
+
+    /// The session `path` names, from this one down.
+    fn session_at(&self, path: &[String]) -> Option<&State> {
+        match path.split_first() {
+            None => Some(self),
+            Some((invoke_id, rest)) => self
+                .invocations
+                .get(invoke_id)
+                .and_then(|invocation| invocation.child.session_at(rest)),
+        }
+    }
+
     /// The ids of the active states, root excluded, sorted; a state with no
     /// id is left out. A stopped chart has none.
     pub fn configuration(&self) -> Vec<String> {
@@ -768,6 +893,21 @@ impl Call {
             return;
         };
         self.within(invoke_id, |child| child.fire_at(rest, sequence));
+        self.drain();
+    }
+
+    /// Delivers a failed send's `error.communication` onto the internal
+    /// queue of the session `path` names, the reference's
+    /// `Statifier.Session.failed_send/3`, and drains each session on the
+    /// way after it.
+    fn fail_at(&mut self, path: &[String], event: Event) {
+        let Some((invoke_id, rest)) = path.split_first() else {
+            let effects = self.deliver_internal(event);
+            self.perform(effects);
+            self.drain();
+            return;
+        };
+        self.within(invoke_id, |child| child.fail_at(rest, event));
         self.drain();
     }
 

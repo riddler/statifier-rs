@@ -66,7 +66,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## The driver and its results
 
-A host holds a [`Machine`] and moves a chart in execution through four
+A host holds a [`Machine`] and moves a chart in execution through five
 calls. Each answers a `Moved`: the new `State` and the `effects` the call
 produced, in the order they were produced.
 
@@ -79,6 +79,10 @@ produced, in the order they were produced.
 - `State::advance(ms)` moves the virtual clock forward and fires every timer
   due by then, earliest first. The clock is a number the host moves: nothing
   here reads the system clock, so a test advances an hour in no time.
+- `State::report_send_failed(&send, reason)` reports a send of a registered
+  type the host could not deliver: the sending session takes
+  `error.communication`, its `sendid` the send's id, and runs to a stable
+  configuration; the reason is written into no field of the event.
 - `State::export_position()` and `Machine::import_position(&position)` move
   a chart between machines (below).
 
@@ -138,7 +142,9 @@ a wildcard arm.
 - A call that moves a chart answers an `Error`: `NotRunning` once the chart
   has stopped, `InvalidDuration` for an `advance` that would move the clock
   past its largest value, `BuiltInSendTypes` for options that register a
-  type the crate delivers itself.
+  type the crate delivers itself, and, for `report_send_failed`, `Halted`
+  while a spent round budget has halted the chart and `NotAHandedSend` for
+  an effect that is not a send handed to the host.
 - A position that cannot be exported or imported answers an `ExportError`
   or an `ImportError`.
 
@@ -313,10 +319,10 @@ head:
 | Claim | Cases passing |
 |---|---|
 | scion | 119 |
-| statifier | 20 |
+| statifier | 21 |
 | w3c-mandatory | 152 |
 | w3c-optional | 2 |
-| Total | 293 |
+| Total | 294 |
 
 No case is skipped. A case this crate cannot pass is a defect to bring to
 the reference, never an entry on a skip list. The full gate re-runs the
@@ -417,8 +423,14 @@ made a synchronous value step:
   with `Error::InvalidDuration`, the driver's name for what the reference
   calls an invalid delay.
 - A send of a registered type is answered as an effect and nothing more:
-  the driver calls no host processor, takes no report of a failed send,
-  and writes an empty `_ioprocessors` entry for each registered type.
+  the driver calls no host processor, and writes an empty `_ioprocessors`
+  entry for each registered type.
+- `State::report_send_failed` refuses a report once the sending session
+  has stopped with `Error::NotRunning`, where the reference's session
+  drops it silently.
+- `State::report_send_failed` refuses a report while a spent round budget
+  has halted the sending session with `Error::Halted`, where the
+  reference's session drops it silently.
 - The `trace` option is taken and ignored: no trace effect is ported, so
   none is answered.
 - `Effect::SendDelayed`, `Effect::Cancel`, `Effect::Invoke` and

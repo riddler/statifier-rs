@@ -458,3 +458,44 @@ fn a_grandchild_is_tagged_with_its_own_session() {
         [child("s-1.i1.i2", "g"), child("s-1.i1", "c")]
     );
 }
+
+// A child's send of a registered type is handed inside the child wrapper;
+// reporting it failed delivers error.communication to the child, and a
+// report naming a child that is no longer live answers NotRunning.
+// Sabotage: with `report_send_failed` reporting to the top session
+// whatever the wrapper names, the child never logs and the parent does.
+#[test]
+fn a_childs_failed_send_report_reaches_the_child() {
+    let machine = machine(
+        r##" initial="a""##,
+        &format!(
+            r##"<state id="a">{}<transition event="error.communication"><log label="parent"/></transition>
+                 <transition event="e.end" target="z"/></state><state id="z"/>"##,
+            invoke(
+                r##" id="i1""##,
+                r##"initial="c"><state id="c"><onentry><send event="e.out" type="x-host" id="k"/></onentry>
+                     <transition event="error.communication" cond="_event.sendid == 'k'"><log label="child"/></transition></state>"##,
+                ""
+            )
+        ),
+    );
+    let mut options = Options::new("s-1");
+    options.send_types = std::collections::BTreeSet::from([String::from("x-host")]);
+    let started = machine.start(options).expect("a start");
+    let send = started
+        .effects
+        .iter()
+        .find(|effect| matches!(effect, Effect::Child { effect, .. } if matches!(**effect, Effect::Send { .. })))
+        .cloned()
+        .expect("the child's send, handed");
+    let reported = started.state.report_send_failed(&send, None).unwrap();
+    assert_eq!(
+        logs(&reported.effects),
+        [(Some(String::from("s-1.i1")), String::from("child"))]
+    );
+    let ended = started.state.step("e.end", Value::Undefined).unwrap();
+    assert_eq!(
+        ended.state.report_send_failed(&send, None).unwrap_err(),
+        Error::NotRunning
+    );
+}

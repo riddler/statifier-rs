@@ -655,13 +655,59 @@ fn the_drive_compares_a_cancelled_outcome_by_the_cancel_handed_to_the_host() {
     );
 }
 
+const FAILS: &str = r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" initial="a">
+  <state id="a"><transition event="e.go" target="b"/></state>
+  <state id="b">
+    <onentry>
+      <send type="x-test" target="t" event="e.one"/>
+      <send type="x-test" target="t" event="e.two" id="two"/>
+    </onentry>
+    <transition event="error.communication" cond="_event.sendid == 'two'" target="c"/>
+    <transition event="error.communication" target="d"/>
+  </state>
+  <state id="c"/>
+  <state id="d"/>
+</scxml>"#;
+
+// A send whose expected item says fail is reported failed as soon as the
+// drive reads it, before the configuration is read again, and its item
+// records the outcome; an item with no outcome is not reported.
+// Sabotage: make runner::Sends::hand queue no failing send; the first
+// assert_eq goes red (the chart stays in b). Make it queue every send
+// handed; the first goes red (the chart reaches d on the first report).
+#[test]
+fn the_drive_reports_a_send_expected_to_fail_through_the_driver() {
+    let go = serde_json::json!([{"event": {"name": "e.go"}, "configuration": ["c"]}]);
+    let expected = serde_json::json!({"send_types": ["x-test"], "expect_sends": [
+        {"type": "x-test", "target": "t", "event": {"name": "e.one"}},
+        {"type": "x-test", "target": "t", "event": {"name": "e.two"}, "send_id": "two", "outcome": "fail"},
+    ]});
+    assert_eq!(
+        runner::drive(&statifier_case(FAILS, &["a"], go.clone(), expected)),
+        runner::Outcome::Pass
+    );
+    let unclaimed = serde_json::json!({"send_types": ["x-test"], "expect_sends": [
+        {"type": "x-test", "target": "t", "event": {"name": "e.one"}},
+        {"type": "x-test", "target": "t", "event": {"name": "e.two"}, "send_id": "two"},
+    ]});
+    let runner::Outcome::Fail(reason) =
+        runner::drive(&statifier_case(FAILS, &["a"], go, unclaimed))
+    else {
+        panic!("a send no report failed reached the error transition");
+    };
+    assert!(
+        reason.starts_with(
+            "step 1 (event \"e.go\"): expected active leaf states [\"c\"], got [\"b\"]"
+        ),
+        "{reason}"
+    );
+}
+
 // A case this runner cannot compare yet fails naming what it waits on,
-// before the chart starts: a send expected to fail needs the failed-send
-// report, an outcome it does not know is named, and a step carrying
-// expect_position needs the position rendering.
+// before the chart starts: an outcome it does not know is named, and a step
+// carrying expect_position needs the position rendering.
 // Sabotage: drop the positions call in runner::drive_case; the
-// expect_position assert_eq goes red (the case passes). Drop the fail arm
-// in runner::expect_sends; the fail assert_eq goes red (the generic reason).
+// expect_position assert_eq goes red (the case passes).
 #[test]
 fn the_drive_fails_a_case_it_cannot_compare_yet_naming_what_it_waits_on() {
     let go = serde_json::json!([{"event": {"name": "e.go"}, "configuration": ["b"]}]);
@@ -670,13 +716,6 @@ fn the_drive_fails_a_case_it_cannot_compare_yet_naming_what_it_waits_on() {
             {"type": "x-test", "target": "t", "event": {"name": "e.out"}, "outcome": outcome},
         ]})
     };
-    assert_eq!(
-        runner::drive(&statifier_case(CHART, &["a", "c"], go.clone(), outcome("fail"))),
-        runner::Outcome::Fail(
-            "expect_sends item 1 has the outcome fail, which needs the failed-send report this runner does not make yet"
-                .to_owned()
-        )
-    );
     assert_eq!(
         runner::drive(&statifier_case(
             CHART,

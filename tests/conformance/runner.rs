@@ -27,11 +27,15 @@ pub const SEND_TYPES: &str = "send_types";
 /// types to be handed over the whole run, in order ([`Sends`]).
 pub const EXPECT_SENDS: &str = "expect_sends";
 
-/// The one `outcome` an `expect_sends` item may carry that the drive
-/// observes: a cancel the driver hands the host for that delayed send. An
-/// item with the outcome `fail` needs the host to report the send failed,
-/// which the drive does not do, so such a case fails naming it.
+/// The `outcome` an `expect_sends` item carries for a delayed send the
+/// drive observes cancelled: a cancel the driver hands the host for it.
 pub const CANCELLED: &str = "cancelled";
+
+/// The `outcome` an `expect_sends` item carries for a send the host
+/// reports it could not deliver: the drive reports the send handed at that
+/// item's position through [`State::report_send_failed`] as soon as it
+/// reads it, and the item records the outcome.
+pub const FAILED: &str = "fail";
 
 /// The step key holding the position a case expects once that step's
 /// configuration agrees. The drive does not render a position, so a case
@@ -124,9 +128,14 @@ pub enum Outcome {
 /// the sends recorded must be exactly its [`EXPECT_SENDS`], in order. Its
 /// [`EVENT_IO_PROCESSORS`] are routed through the [`Host`] (a processor the
 /// host does not provide fails the case naming it). A case carrying any
-/// other host key, an `expect_sends` item whose outcome is not
-/// [`CANCELLED`], or a step carrying an [`EXPECT_POSITION`] fails naming
-/// what it needs, before the chart starts.
+/// other host key, an `expect_sends` item whose outcome is neither
+/// [`CANCELLED`] nor [`FAILED`], or a step carrying an [`EXPECT_POSITION`]
+/// fails naming what it needs, before the chart starts. A send whose
+/// expected item says [`FAILED`] is reported failed through
+/// [`State::report_send_failed`] as soon as the drive reads it, before the
+/// configuration is read again, as the reference's runner reports it
+/// (`pump/3` in `lib/mix/statifier/corpus/host_case.ex` at the vendored
+/// tag).
 ///
 /// It drives the suites in [`DRIVEN_SUITES`]; every other case fails with
 /// [`NOT_DRIVEN`]. A case that does not compile, that the driver refuses,
@@ -172,7 +181,8 @@ fn drive_case(item: &Value, host: &Host) -> Result<(), String> {
         .start(options)
         .map_err(|error| format!("the driver refused the start: {error}"))?;
     sends.take(&started.effects);
-    let mut state = reach(&started.state, 0, &expected, &mut sends)?;
+    let state = report(&started.state, &mut sends)?;
+    let mut state = reach(&state, 0, &expected, &mut sends)?;
     compare(&state, &expected, "the initial configuration")?;
     for (index, step) in steps.iter().enumerate() {
         let event = step.get("event");
@@ -188,12 +198,14 @@ fn drive_case(item: &Value, host: &Host) -> Result<(), String> {
         let settled = clock::settle(&state, &mut fired)
             .map_err(|error| format!("the settle window: {error}"))?;
         sends.take(&fired);
+        let settled = report(&settled, &mut sends)?;
         let since = settled.now_ms();
         let moved = settled
             .step(name, data)
             .map_err(|error| format!("step {} (event {name:?}): {error}", index + 1))?;
         sends.take(&moved.effects);
-        state = reach(&moved.state, since, &expected, &mut sends)?;
+        let reported = report(&moved.state, &mut sends)?;
+        state = reach(&reported, since, &expected, &mut sends)?;
         compare(
             &state,
             &expected,
@@ -216,13 +228,7 @@ fn expect_sends(item: &Value) -> Result<Vec<Value>, String> {
     for (index, send) in expected.iter().enumerate() {
         match send.get("outcome") {
             None => {}
-            Some(Value::String(outcome)) if outcome == CANCELLED => {}
-            Some(Value::String(outcome)) if outcome == "fail" => {
-                return Err(format!(
-                    "expect_sends item {} has the outcome fail, which needs the failed-send report this runner does not make yet",
-                    index + 1
-                ));
-            }
+            Some(Value::String(outcome)) if outcome == CANCELLED || outcome == FAILED => {}
             Some(outcome) => {
                 return Err(format!(
                     "expect_sends item {} has the outcome {outcome}, which this runner does not observe",
@@ -259,6 +265,9 @@ pub struct Sends {
     send_types: BTreeSet<String>,
     expected: Vec<Value>,
     handed: Vec<Handed>,
+    /// The sends handed whose expected item says [`FAILED`], each as the
+    /// effect the host was handed, not yet reported.
+    failing: Vec<Effect>,
 }
 
 /// One send handed to the host: its send id, and its item.
@@ -275,7 +284,18 @@ impl Sends {
             send_types,
             expected,
             handed: Vec::new(),
+            failing: Vec::new(),
         }
+    }
+
+    /// Whether a send handed is still to be reported failed.
+    pub fn has_failing(&self) -> bool {
+        !self.failing.is_empty()
+    }
+
+    /// The sends to report failed, in the order handed, each taken once.
+    pub fn failing(&mut self) -> Vec<Effect> {
+        std::mem::take(&mut self.failing)
     }
 
     /// Reads one call's effects, in order: each send of a registered type is
@@ -286,13 +306,15 @@ impl Sends {
     /// parent's, since a child inherits its parent's send types.
     pub fn take(&mut self, effects: &[Effect]) {
         for effect in effects {
-            self.take_one(effect);
+            self.take_one(effect, effect);
         }
     }
 
-    fn take_one(&mut self, effect: &Effect) {
+    /// Reads `effect`, which the host was handed as `handed`: the effect
+    /// itself, or the [`Effect::Child`] carrying it.
+    fn take_one(&mut self, effect: &Effect, handed: &Effect) {
         match effect {
-            Effect::Child { effect, .. } => self.take_one(effect),
+            Effect::Child { effect, .. } => self.take_one(effect, handed),
             Effect::Send {
                 event,
                 target,
@@ -301,7 +323,7 @@ impl Sends {
                 send_id,
                 id_from_author,
                 ..
-            } => self.hand(send_type.as_ref(), || {
+            } => self.hand(send_type.as_ref(), handed, || {
                 (
                     send_id.clone(),
                     item(
@@ -324,7 +346,7 @@ impl Sends {
                 id_from_author,
                 delay_ms,
                 ..
-            } => self.hand(send_type.as_ref(), || {
+            } => self.hand(send_type.as_ref(), handed, || {
                 (
                     send_id.clone(),
                     item(
@@ -347,15 +369,28 @@ impl Sends {
     }
 
     /// Records the send `made` builds when `send_type` is a registered type.
+    /// A send whose expected item, at the same position, says [`FAILED`]
+    /// is recorded with that outcome and queued to be reported.
     fn hand(
         &mut self,
         send_type: Option<&statifier::Value>,
+        handed: &Effect,
         made: impl FnOnce() -> (String, Map<String, Value>),
     ) {
         // A match guard rather than a let chain, which the minimum Rust lacks.
         if matches!(send_type, Some(statifier::Value::String(send_type)) if self.send_types.contains(send_type))
         {
-            let (send_id, item) = made();
+            let (send_id, mut item) = made();
+            let failed = self
+                .expected
+                .get(self.handed.len())
+                .and_then(|expected| expected.get("outcome"))
+                .and_then(Value::as_str)
+                == Some(FAILED);
+            if failed {
+                item.insert("outcome".to_owned(), Value::from(FAILED));
+                self.failing.push(handed.clone());
+            }
             self.handed.push(Handed { send_id, item });
         }
     }
@@ -562,25 +597,52 @@ fn names(value: &Value) -> Option<Vec<String>> {
         .collect()
 }
 
+/// The state once every send `sends` holds to report failed is reported,
+/// each through [`State::report_send_failed`], and the sends each report
+/// hands the host are read in turn.
+fn report(state: &State, sends: &mut Sends) -> Result<State, String> {
+    let mut state = state.clone();
+    loop {
+        let failing = sends.failing();
+        if failing.is_empty() {
+            return Ok(state);
+        }
+        for send in &failing {
+            let moved = state
+                .report_send_failed(send, None)
+                .map_err(|error| format!("the driver refused the failed-send report: {error}"))?;
+            sends.take(&moved.effects);
+            state = moved.state;
+        }
+    }
+}
+
 /// The state once `expected` is reached or the deadline after `since` has
 /// passed; the sends the timers fired on the way hand the host go to
-/// `sends`.
+/// `sends`, and one to report failed is reported before the configuration
+/// is read again.
 fn reach(
     state: &State,
     since: u64,
     expected: &[String],
     sends: &mut Sends,
 ) -> Result<State, String> {
-    let mut fired = Vec::new();
-    let reached = clock::await_until(
-        state,
-        since,
-        |current| leaves(current) == expected,
-        &mut fired,
-    )
-    .map_err(|error| format!("the configuration deadline: {error}"))?;
-    sends.take(&fired);
-    Ok(reached)
+    let mut state = state.clone();
+    loop {
+        let mut fired = Vec::new();
+        let reached = clock::await_until(
+            &state,
+            since,
+            |current| leaves(current) == expected,
+            &mut fired,
+        )
+        .map_err(|error| format!("the configuration deadline: {error}"))?;
+        sends.take(&fired);
+        if !sends.has_failing() {
+            return Ok(reached);
+        }
+        state = report(&reached, sends)?;
+    }
 }
 
 /// The expected configuration, sorted.
