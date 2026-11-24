@@ -3,6 +3,7 @@
 
 use crate::clock;
 use crate::corpus::{Corpus, id_of};
+use crate::position_expectation;
 use crate::registry::Entry;
 use serde_json::{Map, Value};
 use statifier::{Effect, Options, State};
@@ -19,9 +20,9 @@ pub const NOT_DRIVEN: &str =
 
 /// The `host` key naming the send types a case registers, each handed to
 /// [`Options::send_types`]. A case carrying a key other than this one,
-/// [`EXPECT_SENDS`], [`EVENT_IO_PROCESSORS`], [`DECLARED_EVENTS`] and
-/// [`EXPECT_ACCEPTS`] fails naming it, as `RATCHET.md` says of a host
-/// object a runner cannot honour.
+/// [`EXPECT_SENDS`], [`EVENT_IO_PROCESSORS`], [`DECLARED_EVENTS`],
+/// [`EXPECT_ACCEPTS`] and the [`DIFF_KEYS`] fails naming it, as
+/// `RATCHET.md` says of a host object a runner cannot honour.
 pub const SEND_TYPES: &str = "send_types";
 
 /// The `host` key listing the sends a case expects its registered send
@@ -39,9 +40,22 @@ pub const CANCELLED: &str = "cancelled";
 pub const FAILED: &str = "fail";
 
 /// The step key holding the position a case expects once that step's
-/// configuration agrees. The drive does not render a position, so a case
-/// carrying one fails naming it.
+/// configuration agrees, compared with the rendering of the state the
+/// drive reached ([`position_expectation::compare`]).
 pub const EXPECT_POSITION: &str = "expect_position";
+
+/// The `host` keys of a chart diff case: the target source, the expected
+/// diff, the mapping and the compatibility point. The drive accepts them
+/// and compares none of them, running such a case like any other host
+/// case, as the reference's host case runner does (its moduledoc in
+/// `lib/mix/statifier/corpus/host_case.ex` at the vendored tag); the
+/// reference's own test suite compares them, and this runner does not.
+pub const DIFF_KEYS: [&str; 4] = [
+    "to_source",
+    "expect_diff",
+    "mapping",
+    "expect_compatible_at",
+];
 
 /// The `host` key holding the event names a case's chart is declared to
 /// accept, checked with [`statifier::Machine::check_accepts`] before the
@@ -140,10 +154,14 @@ pub enum Outcome {
 /// [`EVENT_IO_PROCESSORS`] are routed through the [`Host`] (a processor the
 /// host does not provide fails the case naming it). Its [`DECLARED_EVENTS`]
 /// are checked against the compiled chart before anything else, and the
-/// answer must be exactly its [`EXPECT_ACCEPTS`] ([`accepts`]). A case carrying any
-/// other host key, an `expect_sends` item whose outcome is neither
-/// [`CANCELLED`] nor [`FAILED`], or a step carrying an [`EXPECT_POSITION`]
-/// fails naming what it needs, before the chart starts. A send whose
+/// answer must be exactly its [`EXPECT_ACCEPTS`] ([`accepts`]). Its
+/// [`DIFF_KEYS`] are accepted and not compared. A case carrying any other
+/// host key, or an `expect_sends` item whose outcome is neither
+/// [`CANCELLED`] nor [`FAILED`], fails naming what it needs, before the
+/// chart starts. A step carrying an [`EXPECT_POSITION`] is compared, once
+/// that step's configuration agrees, with the rendering of the position
+/// the drive reached, as the reference's runner compares it (`position/3`
+/// in the same file; [`position_expectation`]). A send whose
 /// expected item says [`FAILED`] is reported failed through
 /// [`State::report_send_failed`] as soon as the drive reads it, before the
 /// configuration is read again, as the reference's runner reports it
@@ -189,7 +207,6 @@ fn drive_case(item: &Value, host: &Host) -> Result<(), String> {
         .get("steps")
         .and_then(Value::as_array)
         .ok_or("the case has no steps")?;
-    positions(steps)?;
     let expected = configuration(item.get("initial_configuration"))?;
     let started = machine
         .start(options)
@@ -225,6 +242,9 @@ fn drive_case(item: &Value, host: &Host) -> Result<(), String> {
             &expected,
             &format!("step {} (event {name:?})", index + 1),
         )?;
+        if let Some(position) = step.get(EXPECT_POSITION) {
+            position_expectation::compare(position, &state, index + 1, name)?;
+        }
     }
     sends.compare()
 }
@@ -252,21 +272,6 @@ fn expect_sends(item: &Value) -> Result<Vec<Value>, String> {
         }
     }
     Ok(expected.clone())
-}
-
-/// Nothing when no step carries an [`EXPECT_POSITION`]; else the reason the
-/// case fails, naming the first step that does.
-fn positions(steps: &[Value]) -> Result<(), String> {
-    match steps
-        .iter()
-        .position(|step| step.get(EXPECT_POSITION).is_some())
-    {
-        None => Ok(()),
-        Some(index) => Err(format!(
-            "step {} carries {EXPECT_POSITION}, which needs the position rendering this runner does not compare yet",
-            index + 1
-        )),
-    }
 }
 
 /// The host's recording processor for a case's registered send types: every
@@ -566,6 +571,7 @@ fn options(item: &Value, provided: &Host) -> Result<Options, String> {
                 EXPECT_ACCEPTS,
             ]
             .contains(key)
+                && !DIFF_KEYS.contains(key)
         })
         .collect();
     match unhonoured.as_slice() {
