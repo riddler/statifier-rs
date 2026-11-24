@@ -263,11 +263,12 @@ fn every_case_is_answered_pass_or_fail_with_no_skip() {
     }
 }
 
-// Sabotage: add "statifier" to runner::DRIVEN_SUITES; the assert_eq on the
-// statifier cases' one reason fails (and the ratchet would then claim
-// statifier cases).
+// Every suite of the corpus is driven, and a case of any other suite fails
+// as not driven.
+// Sabotage: drop "statifier" from runner::DRIVEN_SUITES; the assert on the
+// statifier suite fails (its cases fail as not driven).
 #[test]
-fn the_drive_runs_the_scion_and_w3c_suites_and_no_other() {
+fn the_drive_runs_every_suite_of_the_corpus_and_no_other() {
     let corpus = corpus();
     let results = runner::run(&corpus, runner::drive);
     let not_driven = runner::Outcome::Fail(runner::NOT_DRIVEN.to_owned());
@@ -278,16 +279,11 @@ fn the_drive_runs_the_scion_and_w3c_suites_and_no_other() {
             .filter_map(corpus::id_of)
             .filter_map(|id| results.get(id))
             .collect();
-        if ["scion", "w3c"].contains(&suite) {
-            assert!(!outcomes.contains(&not_driven), "{suite}");
-        } else {
-            assert_eq!(
-                outcomes.into_iter().collect::<Vec<_>>(),
-                [&not_driven],
-                "{suite}"
-            );
-        }
+        assert!(!outcomes.contains(&not_driven), "{suite}");
     }
+    let mut other = scion_case(CHART, &["a", "c"], &[]);
+    other["suite"] = serde_json::json!("other");
+    assert_eq!(runner::drive(&other), not_driven);
 }
 
 /// A scion case of `source` with the initial configuration and steps given.
@@ -469,7 +465,9 @@ const SENDS: &str = r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1
 fn the_drive_registers_the_send_types_a_case_declares() {
     let declared = w3c_case(
         scion_case(SENDS, &["a"], &[]),
-        serde_json::json!({"send_types": ["x-test"]}),
+        serde_json::json!({"send_types": ["x-test"], "expect_sends": [
+            {"type": "x-test", "target": null, "event": {"name": "e.out"}},
+        ]}),
     );
     assert_eq!(runner::drive(&declared), runner::Outcome::Pass);
     let undeclared = w3c_case(scion_case(SENDS, &["a"], &[]), serde_json::json!({}));
@@ -502,12 +500,208 @@ fn the_drive_fails_a_case_whose_host_it_cannot_honour_naming_what_it_needs() {
     );
     let other = w3c_case(
         scion_case(CHART, &["a", "c"], &[]),
-        serde_json::json!({"expect_sends": []}),
+        serde_json::json!({"declared_events": []}),
     );
     assert_eq!(
         runner::drive(&other),
         runner::Outcome::Fail(
-            "the case needs the host key expect_sends, which this runner does not honour"
+            "the case needs the host key declared_events, which this runner does not honour"
+                .to_owned()
+        )
+    );
+    let several = w3c_case(
+        scion_case(CHART, &["a", "c"], &[]),
+        serde_json::json!({"to_source": "", "expect_diff": {}, "send_types": []}),
+    );
+    assert_eq!(
+        runner::drive(&several),
+        runner::Outcome::Fail(
+            "the case needs the host keys expect_diff, to_source, which this runner does not honour"
+                .to_owned()
+        )
+    );
+}
+
+/// A statifier case of `source` with the initial configuration, the steps
+/// and the host object given.
+fn statifier_case(
+    source: &str,
+    initial: &[&str],
+    steps: serde_json::Value,
+    host: serde_json::Value,
+) -> serde_json::Value {
+    serde_json::json!({
+        "id": "statifier/x/y",
+        "suite": "statifier",
+        "source": source,
+        "initial_configuration": initial,
+        "steps": steps,
+        "host": host,
+    })
+}
+
+const HANDED: &str = r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" initial="a">
+  <state id="a">
+    <onentry>
+      <send type="x-test" target="t1" event="e.one" id="one"><param name="n" expr="1"/></send>
+      <send type="http://www.w3.org/TR/scxml/#SCXMLEventProcessor" event="e.self"/>
+      <send type="x-test" target="t2" event="e.later" delay="5s"/>
+      <send event="e.tick" delay="50ms"/>
+    </onentry>
+    <transition event="e.tick" target="b"/>
+  </state>
+  <state id="b">
+    <onentry><send type="x-test" target="t3" event="e.ticked"/></onentry>
+    <transition event="e.go" target="c">
+      <send type="x-test" target="t4" event="e.went"><param name="v" expr="_event.data.n"/></send>
+    </transition>
+  </state>
+  <state id="c"/>
+</scxml>"#;
+
+/// The sends [`HANDED`] hands the host, in order, when its step carries
+/// the data `{"n": 7}`.
+fn handed_sends() -> serde_json::Value {
+    serde_json::json!([
+        {"type": "x-test", "target": "t1", "event": {"name": "e.one", "data": {"n": 1}}, "send_id": "one"},
+        {"type": "x-test", "target": "t2", "event": {"name": "e.later"}, "delay_ms": 5000},
+        {"type": "x-test", "target": "t3", "event": {"name": "e.ticked"}},
+        {"type": "x-test", "target": "t4", "event": {"name": "e.went", "data": {"v": 7}}},
+    ])
+}
+
+// Every send of a registered type the driver hands the host, from the
+// start, a fired timer and a step, is compared in order with the case's
+// expect_sends, in the item shape: the payload only when there is one,
+// delay_ms only for a delayed send, send_id only when the document named
+// it. A send of the SCXML type is the driver's, never the host's. A step's
+// event carries the step's data.
+// Sabotage: make runner::Sends::take read nothing; the first assert_eq goes
+// red. Drop sends.take(&fired) in runner::reach; the first goes red (the
+// third send is missing). Step with Value::Undefined in place of the step's
+// data in runner::drive_case; the first goes red (the fourth send has no
+// data). Make runner::Sends::hand record a send of any type; the first goes
+// red (the SCXML send is handed).
+#[test]
+fn the_drive_compares_the_sends_handed_to_the_host_in_order() {
+    let steps =
+        serde_json::json!([{"event": {"name": "e.go", "data": {"n": 7}}, "configuration": ["c"]}]);
+    let host = |expected: serde_json::Value| serde_json::json!({"send_types": ["x-test"], "expect_sends": expected});
+    let agreeing = statifier_case(HANDED, &["b"], steps.clone(), host(handed_sends()));
+    assert_eq!(runner::drive(&agreeing), runner::Outcome::Pass);
+    let mut reordered = handed_sends();
+    reordered.as_array_mut().unwrap().swap(0, 1);
+    let runner::Outcome::Fail(reason) = runner::drive(&statifier_case(
+        HANDED,
+        &["b"],
+        steps.clone(),
+        host(reordered),
+    )) else {
+        panic!("sends handed out of order passed");
+    };
+    assert!(
+        reason.starts_with("expected the sends handed to the host [{"),
+        "{reason}"
+    );
+    let none = statifier_case(HANDED, &["b"], steps, host(serde_json::json!([])));
+    assert_eq!(
+        runner::drive(&none),
+        runner::Outcome::Fail(format!(
+            "expected the sends handed to the host [], got {}",
+            handed_sends()
+        ))
+    );
+}
+
+const CANCELS: &str = r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" initial="a">
+  <state id="a">
+    <onentry>
+      <send type="x-test" target="t" event="e.late" id="late" delay="10ms"/>
+      <send type="x-test" target="t" event="e.kept" id="kept" delay="10ms"/>
+    </onentry>
+    <transition event="e.go" target="b"/>
+  </state>
+  <state id="b"><onentry><cancel sendid="late"/><cancel sendid="kept"/></onentry></state>
+</scxml>"#;
+
+// An expected cancelled outcome agrees only when the driver hands the host
+// a cancel for that delayed send, and an item with no outcome makes no
+// claim about a cancel, as the reference's runner marks them.
+// Sabotage: make runner::Sends::cancel mark nothing; the first assert_eq
+// goes red. Drop the expected item's claim from it (mark every cancelled
+// send); the first goes red (the second item gains an outcome).
+#[test]
+fn the_drive_compares_a_cancelled_outcome_by_the_cancel_handed_to_the_host() {
+    let expected = serde_json::json!({"send_types": ["x-test"], "expect_sends": [
+        {"type": "x-test", "target": "t", "event": {"name": "e.late"}, "delay_ms": 10, "send_id": "late", "outcome": "cancelled"},
+        {"type": "x-test", "target": "t", "event": {"name": "e.kept"}, "delay_ms": 10, "send_id": "kept"},
+    ]});
+    let go = serde_json::json!([{"event": {"name": "e.go"}, "configuration": ["b"]}]);
+    assert_eq!(
+        runner::drive(&statifier_case(CANCELS, &["a"], go, expected.clone())),
+        runner::Outcome::Pass
+    );
+    let runner::Outcome::Fail(reason) = runner::drive(&statifier_case(
+        CANCELS,
+        &["a"],
+        serde_json::json!([]),
+        expected,
+    )) else {
+        panic!("a cancelled outcome no cancel reached passed");
+    };
+    assert!(
+        reason.starts_with("expected the sends handed to the host "),
+        "{reason}"
+    );
+}
+
+// A case this runner cannot compare yet fails naming what it waits on,
+// before the chart starts: a send expected to fail needs the failed-send
+// report, an outcome it does not know is named, and a step carrying
+// expect_position needs the position rendering.
+// Sabotage: drop the positions call in runner::drive_case; the
+// expect_position assert_eq goes red (the case passes). Drop the fail arm
+// in runner::expect_sends; the fail assert_eq goes red (the generic reason).
+#[test]
+fn the_drive_fails_a_case_it_cannot_compare_yet_naming_what_it_waits_on() {
+    let go = serde_json::json!([{"event": {"name": "e.go"}, "configuration": ["b"]}]);
+    let outcome = |outcome: &str| {
+        serde_json::json!({"send_types": ["x-test"], "expect_sends": [
+            {"type": "x-test", "target": "t", "event": {"name": "e.out"}, "outcome": outcome},
+        ]})
+    };
+    assert_eq!(
+        runner::drive(&statifier_case(CHART, &["a", "c"], go.clone(), outcome("fail"))),
+        runner::Outcome::Fail(
+            "expect_sends item 1 has the outcome fail, which needs the failed-send report this runner does not make yet"
+                .to_owned()
+        )
+    );
+    assert_eq!(
+        runner::drive(&statifier_case(
+            CHART,
+            &["a", "c"],
+            go.clone(),
+            outcome("lost")
+        )),
+        runner::Outcome::Fail(
+            "expect_sends item 1 has the outcome \"lost\", which this runner does not observe"
+                .to_owned()
+        )
+    );
+    let positioned = serde_json::json!([
+        {"event": {"name": "e.go"}, "configuration": ["b"]},
+        {"event": {"name": "e.end"}, "configuration": ["f"], "expect_position": {}},
+    ]);
+    assert_eq!(
+        runner::drive(&statifier_case(
+            CHART,
+            &["a", "c"],
+            positioned,
+            serde_json::json!({})
+        )),
+        runner::Outcome::Fail(
+            "step 2 carries expect_position, which needs the position rendering this runner does not compare yet"
                 .to_owned()
         )
     );
@@ -662,6 +856,11 @@ fn the_gap_list_names_each_unclaimed_case_of_every_suite_in_order_with_its_featu
             format!(
                 "conformance: w3c: {0} of {0} cases pass (the first in the reference's order: w3c/test144)",
                 corpus.cases_of("w3c").len()
+            ),
+            format!(
+                "conformance: statifier: {0} of {0} cases pass (the first in the reference's order: {1})",
+                corpus.cases_of("statifier").len(),
+                corpus::id_of(&statifier).unwrap()
             ),
         ]
     );
