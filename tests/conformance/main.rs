@@ -492,6 +492,56 @@ fn the_drive_fails_a_case_whose_host_it_cannot_honour_naming_what_it_needs() {
     );
 }
 
+// A processor the host provides lets a case naming it through to the drive;
+// one it does not provide fails the case naming that processor alone, and
+// the runner's own host provides none.
+// Sabotage: make runner::options name no processor as missing; the
+// unprovided assert_eq goes red (the case passes). Make it name every
+// processor, provided or not; the first assert_eq goes red (the case
+// fails). Make runner::drive_case ignore the host it is given; the first
+// assert_eq goes red (the case fails).
+#[test]
+fn the_drive_routes_a_cases_processors_through_the_host_it_is_given() {
+    let stand_in = "x-test-processor";
+    let other = "x-other-processor";
+    let case = w3c_case(
+        scion_case(CHART, &["a", "c"], &[]),
+        serde_json::json!({"event_io_processors": [stand_in]}),
+    );
+    assert_eq!(
+        runner::drive_with(&case, &runner::Host::providing(&[stand_in])),
+        runner::Outcome::Pass
+    );
+    let missing = |name: &str| {
+        runner::Outcome::Fail(format!(
+            "the case needs the Event I/O Processor {name}, which this runner does not run"
+        ))
+    };
+    assert_eq!(
+        runner::drive_with(&case, &runner::Host::providing(&[other])),
+        missing(stand_in)
+    );
+    assert_eq!(runner::drive(&case), missing(stand_in));
+    let both = w3c_case(
+        scion_case(CHART, &["a", "c"], &[]),
+        serde_json::json!({"event_io_processors": [stand_in, other]}),
+    );
+    assert_eq!(
+        runner::drive_with(&both, &runner::Host::providing(&[stand_in])),
+        missing(other)
+    );
+    let malformed = w3c_case(
+        scion_case(CHART, &["a", "c"], &[]),
+        serde_json::json!({"event_io_processors": "x-test-processor"}),
+    );
+    assert_eq!(
+        runner::drive_with(&malformed, &runner::Host::providing(&[stand_in])),
+        runner::Outcome::Fail(
+            "the case's host event_io_processors is not a list of names".to_owned()
+        )
+    );
+}
+
 // A chart holding an <invoke> is driven: the child starts, stops, and its
 // done.invoke event moves the parent on.
 // Sabotage: make Call::start_child return before the child starts; the
