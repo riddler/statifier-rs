@@ -352,8 +352,8 @@ impl Sends {
         send_type: Option<&statifier::Value>,
         made: impl FnOnce() -> (String, Map<String, Value>),
     ) {
-        if let Some(statifier::Value::String(send_type)) = send_type
-            && self.send_types.contains(send_type)
+        // A match guard rather than a let chain, which the minimum Rust lacks.
+        if matches!(send_type, Some(statifier::Value::String(send_type)) if self.send_types.contains(send_type))
         {
             let (send_id, item) = made();
             self.handed.push(Handed { send_id, item });
