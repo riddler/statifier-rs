@@ -1,0 +1,3 @@
+### Added
+
+- `Machine::check_accepts`, which compares a declaration of the event names a chart accepts with the chart's event vocabulary, every descriptor on a transition whose source state some path enters, under the matching transition selection uses. It answers an `AcceptsCheck`: `unreachable`, the declared names no descriptor matches, in the declaration's order and each once; and `undeclared`, the descriptors no declared name matches, as written and in transition order. `None` is no declaration and answers both lists empty; an empty declaration leaves every descriptor undeclared. It refuses nothing.

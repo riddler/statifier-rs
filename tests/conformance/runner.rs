@@ -19,8 +19,9 @@ pub const NOT_DRIVEN: &str =
 
 /// The `host` key naming the send types a case registers, each handed to
 /// [`Options::send_types`]. A case carrying a key other than this one,
-/// [`EXPECT_SENDS`] and [`EVENT_IO_PROCESSORS`] fails naming it, as
-/// `RATCHET.md` says of a host object a runner cannot honour.
+/// [`EXPECT_SENDS`], [`EVENT_IO_PROCESSORS`], [`DECLARED_EVENTS`] and
+/// [`EXPECT_ACCEPTS`] fails naming it, as `RATCHET.md` says of a host
+/// object a runner cannot honour.
 pub const SEND_TYPES: &str = "send_types";
 
 /// The `host` key listing the sends a case expects its registered send
@@ -41,6 +42,16 @@ pub const FAILED: &str = "fail";
 /// configuration agrees. The drive does not render a position, so a case
 /// carrying one fails naming it.
 pub const EXPECT_POSITION: &str = "expect_position";
+
+/// The `host` key holding the event names a case's chart is declared to
+/// accept, checked with [`statifier::Machine::check_accepts`] before the
+/// chart starts ([`accepts`]).
+pub const DECLARED_EVENTS: &str = "declared_events";
+
+/// The `host` key holding what the accepts check answers for
+/// [`DECLARED_EVENTS`]: its `unreachable` and `undeclared` lists, compared
+/// exactly, order included.
+pub const EXPECT_ACCEPTS: &str = "expect_accepts";
 
 /// The `host` key naming the Event I/O Processors a case needs. Each is
 /// looked up in the [`Host`] the drive was given: a case whose processors
@@ -127,7 +138,9 @@ pub enum Outcome {
 /// whole run is recorded ([`Sends`]), and once every configuration agrees
 /// the sends recorded must be exactly its [`EXPECT_SENDS`], in order. Its
 /// [`EVENT_IO_PROCESSORS`] are routed through the [`Host`] (a processor the
-/// host does not provide fails the case naming it). A case carrying any
+/// host does not provide fails the case naming it). Its [`DECLARED_EVENTS`]
+/// are checked against the compiled chart before anything else, and the
+/// answer must be exactly its [`EXPECT_ACCEPTS`] ([`accepts`]). A case carrying any
 /// other host key, an `expect_sends` item whose outcome is neither
 /// [`CANCELLED`] nor [`FAILED`], or a step carrying an [`EXPECT_POSITION`]
 /// fails naming what it needs, before the chart starts. A send whose
@@ -169,6 +182,7 @@ fn drive_case(item: &Value, host: &Host) -> Result<(), String> {
         let messages: Vec<&str> = refusals.iter().map(|refusal| refusal.message()).collect();
         format!("the source does not compile: {}", messages.join("; "))
     })?;
+    accepts(&machine, item)?;
     let options = options(item, host)?;
     let mut sends = Sends::new(options.send_types.clone(), expect_sends(item)?);
     let steps = item
@@ -543,7 +557,16 @@ fn options(item: &Value, provided: &Host) -> Result<Options, String> {
     let unhonoured: Vec<&str> = host
         .keys()
         .map(String::as_str)
-        .filter(|key| ![SEND_TYPES, EXPECT_SENDS, EVENT_IO_PROCESSORS].contains(key))
+        .filter(|key| {
+            ![
+                SEND_TYPES,
+                EXPECT_SENDS,
+                EVENT_IO_PROCESSORS,
+                DECLARED_EVENTS,
+                EXPECT_ACCEPTS,
+            ]
+            .contains(key)
+        })
         .collect();
     match unhonoured.as_slice() {
         [] => {}
@@ -586,6 +609,54 @@ fn options(item: &Value, provided: &Host) -> Result<Options, String> {
         }
     }
     Ok(options)
+}
+
+/// The accepts check of a case's `host` object, made on the compiled chart
+/// before the chart starts, as the reference's host case runner makes it
+/// (`accepts/2` in `lib/mix/statifier/corpus/host_case.ex` at the vendored
+/// tag): [`statifier::Machine::check_accepts`] over its [`DECLARED_EVENTS`]
+/// (a JSON `null` is no declaration) must answer exactly its
+/// [`EXPECT_ACCEPTS`], both lists in order and no other key. Either key
+/// without the other fails the case, each with its own reason; a case with
+/// neither is not checked.
+pub fn accepts(machine: &statifier::Machine, item: &Value) -> Result<(), String> {
+    let host = item.get("host").and_then(Value::as_object);
+    let declared = host.and_then(|host| host.get(DECLARED_EVENTS));
+    let expected = host.and_then(|host| host.get(EXPECT_ACCEPTS));
+    let (declared, expected) = match (declared, expected) {
+        (None, None) => return Ok(()),
+        (Some(_), None) => {
+            return Err(format!(
+                "{DECLARED_EVENTS} is present without {EXPECT_ACCEPTS}"
+            ));
+        }
+        (None, Some(_)) => {
+            return Err(format!(
+                "{EXPECT_ACCEPTS} is present without {DECLARED_EVENTS}"
+            ));
+        }
+        (Some(declared), Some(expected)) => (declared, expected),
+    };
+    let declared = if declared.is_null() {
+        None
+    } else {
+        Some(names(declared).ok_or("the case's host declared_events is not a list of names")?)
+    };
+    let names: Option<Vec<&str>> = declared
+        .as_ref()
+        .map(|names| names.iter().map(String::as_str).collect());
+    let check = machine.check_accepts(names.as_deref());
+    let actual = serde_json::json!({
+        "unreachable": check.unreachable,
+        "undeclared": check.undeclared,
+    });
+    if actual == *expected {
+        Ok(())
+    } else {
+        Err(format!(
+            "Expected the accepts check {expected}, but got {actual}"
+        ))
+    }
 }
 
 /// The strings of a list, `None` when it is not a list of strings.

@@ -25,7 +25,7 @@ mod event_loop;
 mod exit_entry;
 mod invoke;
 mod machine_state;
-mod name_match;
+pub(crate) mod name_match;
 mod selection;
 mod step;
 

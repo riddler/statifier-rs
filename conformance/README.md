@@ -109,13 +109,18 @@ cancel the driver hands the host marking a delayed send whose expected
 item says `cancelled`, as the reference's host case runner
 (`lib/mix/statifier/corpus/host_case.ex` at the tag) records them; once
 every configuration agrees, the sends recorded must be exactly the
-case's `expect_sends`, in order. A case the drive cannot compare yet
-fails before the chart starts, naming what it waits on: a host key it
-does not honour (the accepts check's `declared_events` and
-`expect_accepts`, the chart diff's `to_source`, `expect_diff`, `mapping`
-and `expect_compatible_at`), an expected send whose outcome is `fail`
-(the failed-send report), and a step carrying `expect_position` (the
-position rendering). The registry check prints, for each driven suite,
+case's `expect_sends`, in order. A send whose expected item says `fail`
+is reported failed through `State::report_send_failed` as soon as the
+drive reads it. Before the chart starts, a case carrying
+`declared_events` and `expect_accepts` is checked with
+`Machine::check_accepts` on the compiled chart (a JSON `null` being no
+declaration), and both lists it answers must be exactly the case's,
+order included; either key without the other fails the case, as the
+reference's host case runner checks it. A case the drive cannot compare
+yet fails before the chart starts, naming what it waits on: a host key
+it does not honour (the chart diff's `to_source`, `expect_diff`,
+`mapping` and `expect_compatible_at`) and a step carrying
+`expect_position` (the position rendering). The registry check prints, for each driven suite,
 how many cases pass, and the gap list: every case of every suite the
 registry does not claim, in the reference's order, with its conformance
 class when the corpus gives one, the features it needs, the keys of its
