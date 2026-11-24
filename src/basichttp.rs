@@ -428,7 +428,6 @@ impl Response {
 ///
 /// The cause, when there was one, is its [`source`](Error::source). It
 /// implements no `PartialEq`, because a cause is not comparable.
-#[non_exhaustive]
 #[derive(Debug, Clone)]
 pub struct TransportError {
     message: String,

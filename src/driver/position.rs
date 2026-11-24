@@ -59,12 +59,34 @@ pub struct ActiveInvocation {
     pub invoke_id: String,
 }
 
+impl ActiveInvocation {
+    /// The live invocation of the `<invoke>` at `invoke_index` among the
+    /// `<invoke>` elements of the state `state`, with the invoke id
+    /// `invoke_id`: what a host that keeps a position in its own storage
+    /// builds each entry of [`Position::active_invocations`] from.
+    ///
+    /// ```
+    /// let invocation = statifier::ActiveInvocation::new("s1", 0, "s1.inv_1");
+    /// assert_eq!(invocation.state, "s1");
+    /// assert_eq!(invocation.invoke_index, 0);
+    /// assert_eq!(invocation.invoke_id, "s1.inv_1");
+    /// ```
+    pub fn new(state: impl Into<String>, invoke_index: u64, invoke_id: impl Into<String>) -> Self {
+        Self {
+            state: state.into(),
+            invoke_index,
+            invoke_id: invoke_id.into(),
+        }
+    }
+}
+
 /// A chart's position in the string-id vocabulary: every field of the
 /// reference's export, a state named by the id the document wrote and the
 /// root never named.
 ///
 /// [`State::export_position`] answers one; [`Machine::import_position`]
-/// reads one, which a host may have kept anywhere and edited. With the
+/// reads one, which a host may have kept anywhere and edited, or built from
+/// [`Position::default`] and its own storage. With the
 /// `serde` feature its serialized keys are the TypeScript sibling's, in
 /// camel case, and each datamodel root is the predicator crate's tagged
 /// text of its value, so a position one sibling writes reads in the other.
@@ -134,6 +156,59 @@ pub struct Position {
     pub trace: bool,
     /// The round budget of each macrostep.
     pub max_macrostep_rounds: RoundBudget,
+}
+
+/// The empty position: no identity ([`Value::Null`]), no state, no
+/// datamodel, every counter at 0, running and not stopped, no trace and the
+/// default round budget. A host that keeps a position in its own storage
+/// starts from it and sets each field it kept:
+///
+/// ```
+/// use statifier::{Key, Map, Position, Value};
+///
+/// let machine = statifier::compile(
+///     r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" initial="a">
+///          <state id="a"><transition event="e.go" target="b"/></state>
+///          <final id="b"/>
+///        </scxml>"#,
+/// )
+/// .map_err(|refusals| format!("{refusals:?}"))?;
+///
+/// let mut datamodel = Map::new();
+/// datamodel.insert(Key::from("_sessionid"), Value::from("s-1"));
+/// let mut position = Position::default();
+/// position.configuration.insert("a".to_owned());
+/// position.entered_states.insert("a".to_owned());
+/// position.datamodel = datamodel;
+///
+/// let state = machine.import_position(&position)?;
+/// assert_eq!(state.configuration(), ["a"]);
+/// let stepped = state.step("e.go", Value::Undefined);
+/// assert!(stepped.is_ok_and(|moved| moved.state.done().is_some()));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+impl Default for Position {
+    fn default() -> Self {
+        Self {
+            identity: Value::Null,
+            configuration: BTreeSet::new(),
+            entered_states: BTreeSet::new(),
+            states_to_invoke: BTreeSet::new(),
+            history_values: BTreeMap::new(),
+            active_invocations: Vec::new(),
+            invoke_counter: 0,
+            send_counter: 0,
+            timer_counter: 0,
+            datamodel: Map::new(),
+            running: true,
+            status: Status::Running,
+            macrostep: 0,
+            microstep: 0,
+            round: 0,
+            trace: false,
+            max_macrostep_rounds: RoundBudget::default(),
+        }
+    }
 }
 
 /// Why [`State::export_position`] refused.

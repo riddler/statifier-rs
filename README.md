@@ -762,8 +762,12 @@ After checking out the repository, run `mise install` for the Rust toolchain
 and the cargo tools `mise.toml` pins. Then `mise run gate:loop` runs the
 inner loop (format, lints, tests), and `mise run gate` runs the full quality
 gate: the inner loop, the corpus, registry and position checks, the docs
-with every feature and with none, line coverage and `cargo deny check`. The
-README's Rust examples run as doctests.
+with every feature and with none, the public surface check, line coverage
+and `cargo deny check`. The README's Rust examples run as doctests. The
+public surface check compares a listing of the crate's public items, built
+from its documentation with every feature on, with
+`tests/public-items.txt`: a change to the public surface rewrites that
+file with `mise run surface:write` in the same commit.
 
 ## Contributing
 
