@@ -224,9 +224,13 @@ It differs in these parts of a position, the reference's
   again from its own options.
 - With the `serde` feature, a JSON position missing a key or holding a
   value of the wrong shape is refused by the deserializer, naming the
-  first it meets; the reference names every missing key at once. A JSON
-  counter above the 64-bit signed range is refused there too, since every
-  value is read through the predicator crate's reader.
+  first it meets; the reference names every missing key at once.
+- Every counter of a position (the invoke, send and timer counters, the
+  macrostep, the microstep and the round) and an active invocation's
+  invoke index is a non-negative 64-bit count, so a position cannot hold a
+  negative one; the reference takes any integer. With the `serde` feature
+  the reader refuses a negative one, and one above the 64-bit signed range
+  too, since every value is read through the predicator crate's reader.
 
 It differs in this part of its conformance check, which no user of the
 crate sees:
