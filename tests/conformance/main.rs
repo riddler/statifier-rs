@@ -25,6 +25,7 @@ mod checks;
 mod clock;
 mod corpus;
 mod position;
+mod position_expectation;
 mod ratchet;
 mod readme;
 mod refresh;
@@ -500,23 +501,51 @@ fn the_drive_fails_a_case_whose_host_it_cannot_honour_naming_what_it_needs() {
     );
     let other = w3c_case(
         scion_case(CHART, &["a", "c"], &[]),
-        serde_json::json!({"mapping": {}}),
+        serde_json::json!({"x_other": {}}),
     );
     assert_eq!(
         runner::drive(&other),
         runner::Outcome::Fail(
-            "the case needs the host key mapping, which this runner does not honour".to_owned()
+            "the case needs the host key x_other, which this runner does not honour".to_owned()
         )
     );
     let several = w3c_case(
         scion_case(CHART, &["a", "c"], &[]),
-        serde_json::json!({"to_source": "", "expect_diff": {}, "send_types": []}),
+        serde_json::json!({"x_one": "", "x_two": {}, "send_types": []}),
     );
     assert_eq!(
         runner::drive(&several),
         runner::Outcome::Fail(
-            "the case needs the host keys expect_diff, to_source, which this runner does not honour"
+            "the case needs the host keys x_one, x_two, which this runner does not honour"
                 .to_owned()
+        )
+    );
+}
+
+// A chart diff case is driven like any host case: its four diff keys are
+// accepted and none of them is compared, so a case whose expected diff
+// cannot be the chart's still passes on its configurations and its sends,
+// and fails on them as any case does.
+// Sabotage: drop the DIFF_KEYS clause in runner::options; the first
+// assert_eq goes red (the case fails naming the keys).
+#[test]
+fn the_drive_accepts_a_chart_diff_case_and_compares_none_of_its_diff_keys() {
+    let go = serde_json::json!([{"event": {"name": "e.go"}, "configuration": ["b"]}]);
+    let diff = serde_json::json!({
+        "to_source": "not a chart",
+        "expect_diff": {"x": "never compared"},
+        "mapping": {"a": "z"},
+        "expect_compatible_at": ["z"],
+    });
+    assert_eq!(
+        runner::drive(&statifier_case(CHART, &["a", "c"], go, diff.clone())),
+        runner::Outcome::Pass
+    );
+    let wrong = serde_json::json!([{"event": {"name": "e.go"}, "configuration": ["f"]}]);
+    assert_eq!(
+        runner::drive(&statifier_case(CHART, &["a", "c"], wrong, diff)),
+        runner::Outcome::Fail(
+            "step 1 (event \"e.go\"): expected active leaf states [\"f\"], got [\"b\"]".to_owned()
         )
     );
 }
@@ -760,10 +789,9 @@ fn the_drive_reports_a_send_expected_to_fail_through_the_driver() {
 }
 
 // A case this runner cannot compare yet fails naming what it waits on,
-// before the chart starts: an outcome it does not know is named, and a step
-// carrying expect_position needs the position rendering.
-// Sabotage: drop the positions call in runner::drive_case; the
-// expect_position assert_eq goes red (the case passes).
+// before the chart starts: an outcome it does not know is named.
+// Sabotage: make runner::expect_sends accept every outcome; the assert_eq
+// goes red (the case fails on the sends, not on the outcome).
 #[test]
 fn the_drive_fails_a_case_it_cannot_compare_yet_naming_what_it_waits_on() {
     let go = serde_json::json!([{"event": {"name": "e.go"}, "configuration": ["b"]}]);
@@ -781,22 +809,6 @@ fn the_drive_fails_a_case_it_cannot_compare_yet_naming_what_it_waits_on() {
         )),
         runner::Outcome::Fail(
             "expect_sends item 1 has the outcome \"lost\", which this runner does not observe"
-                .to_owned()
-        )
-    );
-    let positioned = serde_json::json!([
-        {"event": {"name": "e.go"}, "configuration": ["b"]},
-        {"event": {"name": "e.end"}, "configuration": ["f"], "expect_position": {}},
-    ]);
-    assert_eq!(
-        runner::drive(&statifier_case(
-            CHART,
-            &["a", "c"],
-            positioned,
-            serde_json::json!({})
-        )),
-        runner::Outcome::Fail(
-            "step 2 carries expect_position, which needs the position rendering this runner does not compare yet"
                 .to_owned()
         )
     );
@@ -1012,4 +1024,215 @@ fn reports_per_suite_the_cases_not_yet_claimed() {
         })
         .collect();
     assert_eq!(lines, expected);
+}
+
+/// The state `source` reaches once started and sent each of `events` in turn.
+fn reached(source: &str, events: &[&str]) -> statifier::State {
+    let machine = statifier::compile(source).unwrap();
+    let mut state = machine.start(statifier::Options::new("s-1")).unwrap().state;
+    for event in events {
+        state = state
+            .step(event, statifier::Value::Undefined)
+            .unwrap()
+            .state;
+    }
+    state
+}
+
+const INVOKES: &str = r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" datamodel="predicator" initial="p">
+  <datamodel>
+    <data id="n" expr="2.0"/>
+    <data id="items" expr="[1, 'b', null]"/>
+    <data id="pair" expr="{k: 1}"/>
+    <data id="u"/>
+  </datamodel>
+  <parallel id="p">
+    <state id="z">
+      <invoke type="scxml"><content><scxml version="1.0"><state id="w"/></scxml></content></invoke>
+    </state>
+    <state id="m" initial="m1">
+      <invoke type="scxml"><content><scxml version="1.0"><state id="w"/></scxml></content></invoke>
+      <invoke type="scxml"><content><scxml version="1.0"><state id="w"/></scxml></content></invoke>
+      <state id="m1"><transition event="e.go" target="m2"/></state>
+      <state id="m2"/>
+    </state>
+  </parallel>
+</scxml>"#;
+
+// The rendering keeps the seven members and nothing else: the id sets
+// sorted, the live invocations as state and index, sorted by both, without
+// their ids, the running flag, and the datamodel as JSON without _event,
+// _ioprocessors and _sessionid, and without _name when the scxml element
+// carries no name (undefined written as null, a float as it is).
+// Sabotage, each on its own: render configuration from entered_states in
+// position_expectation::rendering; sort no invocation in invocations (z
+// comes first in document order); name each invocation by its invoke id
+// in invocations; drop any one root of LEFT_OUT_VARIABLES; keep _name
+// whatever the datamodel holds in datamodel. Each turns the assert_eq red.
+#[test]
+fn the_position_rendering_keeps_seven_members_as_the_reference_renders_them() {
+    let state = reached(INVOKES, &["e.go"]);
+    assert_eq!(
+        position_expectation::render(&state),
+        Ok(serde_json::json!({
+            "configuration": ["m", "m2", "p", "z"],
+            "entered_states": ["m", "m1", "m2", "p", "z"],
+            "states_to_invoke": [],
+            "history_values": {},
+            "active_invocations": [
+                {"state": "m", "index": 0},
+                {"state": "m", "index": 1},
+                {"state": "z", "index": 0},
+            ],
+            "running": true,
+            "datamodel": {"n": 2.0, "items": [1, "b", null], "pair": {"k": 1}, "u": null},
+        }))
+    );
+}
+
+const HISTORY: &str = r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" datamodel="predicator" initial="q" name="x-chart">
+  <state id="q" initial="q1">
+    <history id="h" type="deep"><transition target="q1"/></history>
+    <state id="q1"><transition event="e.go" target="q3"/></state>
+    <state id="q3"/>
+    <transition event="e.out" target="r"/>
+  </state>
+  <final id="r"/>
+</scxml>"#;
+
+// A history state's recorded ids are rendered by the history's id, the
+// running flag is false once a top-level final state is entered, and
+// _name stays when the scxml element carries a name.
+// Sabotage, each on its own: render configuration from entered_states,
+// states_to_invoke empty or history_values empty in
+// position_expectation::rendering; drop _name whatever the datamodel holds
+// in datamodel; write running as true. Each turns the assert_eq red.
+#[test]
+fn the_position_rendering_keeps_history_running_and_a_document_name() {
+    let state = reached(HISTORY, &["e.go", "e.out"]);
+    assert_eq!(
+        position_expectation::render(&state),
+        Ok(serde_json::json!({
+            "configuration": [],
+            "entered_states": ["q", "q1", "q3", "r"],
+            "states_to_invoke": ["r"],
+            "history_values": {"h": ["q3"]},
+            "active_invocations": [],
+            "running": false,
+            "datamodel": {"_name": "x-chart"},
+        }))
+    );
+}
+
+// A datamodel value with no JSON form is refused naming its variable, and
+// the comparison then cannot be made.
+// Sabotage: write a value with no JSON form as null in
+// position_expectation::json_of; the assert_eq goes red (the rendering
+// answers).
+#[test]
+fn the_position_rendering_refuses_a_value_with_no_json_form_naming_it() {
+    let source = r#"<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" datamodel="predicator" initial="a">
+  <datamodel><data id="when" expr="[#2030-01-15#]"/></datamodel>
+  <state id="a"/>
+</scxml>"#;
+    let state = reached(source, &[]);
+    assert_eq!(
+        position_expectation::render(&state),
+        Err(
+            "the datamodel's when holds List([Date(2030-01-15)]), which has no JSON form here"
+                .to_owned()
+        )
+    );
+}
+
+// Values compare as JSON values: a number by value, so a float 2.0 agrees
+// with an expected 2; an array in order; an object over the union of both
+// key sets, so a member missing on either side differs. Each member that
+// differs is named, in key order, with both values.
+// Sabotage, each on its own: compare numbers as serde_json does in
+// position_expectation::same (2.0 is not 2); compare only the expected keys
+// in position_expectation::compare; drop the length check on objects in
+// same. Each turns an assertion red.
+#[test]
+fn the_position_comparison_is_of_json_values_naming_each_member_that_differs() {
+    let state = reached(INVOKES, &["e.go"]);
+    let Ok(serde_json::Value::Object(rendered)) = position_expectation::render(&state) else {
+        panic!("the rendering is not an object");
+    };
+    let mut expected = rendered.clone();
+    expected.insert(
+        "datamodel".to_owned(),
+        serde_json::json!({"n": 2, "items": [1, "b", null], "pair": {"k": 1}, "u": null}),
+    );
+    let expected = serde_json::Value::Object(expected);
+    assert_eq!(
+        position_expectation::compare(&expected, &state, 1, "e.go"),
+        Ok(())
+    );
+    let mut reordered = rendered.clone();
+    reordered.insert(
+        "configuration".to_owned(),
+        serde_json::json!(["z", "p", "m2", "m"]),
+    );
+    reordered.remove("running");
+    reordered.insert("extra".to_owned(), serde_json::json!(1));
+    assert_eq!(
+        position_expectation::compare(&serde_json::Value::Object(reordered), &state, 1, "e.go"),
+        Err("after step 1 (e.go), expect_position differs: configuration: expected [\"z\",\"p\",\"m2\",\"m\"], but got [\"m\",\"m2\",\"p\",\"z\"]; extra: expected 1, but got nothing; running: expected nothing, but got true".to_owned())
+    );
+    let mut narrower = rendered;
+    narrower.insert(
+        "datamodel".to_owned(),
+        serde_json::json!({"n": 2, "items": [1, "b", null], "pair": {}, "u": null}),
+    );
+    assert!(
+        position_expectation::compare(&serde_json::Value::Object(narrower), &state, 1, "e.go")
+            .is_err()
+    );
+}
+
+// A step's expect_position is compared once that step's configuration
+// agrees, with the rendering of the position the drive reached; a case
+// whose expectation differs fails naming the step and the member.
+// Sabotage: drop the EXPECT_POSITION comparison in runner::drive_case; the
+// second assert_eq goes red (the case passes).
+#[test]
+fn the_drive_compares_a_steps_expected_position_once_its_configuration_agrees() {
+    let position = |running: bool| {
+        serde_json::json!({
+            "configuration": ["q", "q3"],
+            "entered_states": ["q", "q1", "q3"],
+            "states_to_invoke": [],
+            "history_values": {},
+            "active_invocations": [],
+            "running": running,
+            "datamodel": {"_name": "x-chart"},
+        })
+    };
+    let steps = |running: bool| {
+        serde_json::json!([
+            {"event": {"name": "e.go"}, "configuration": ["q3"], "expect_position": position(running)},
+        ])
+    };
+    assert_eq!(
+        runner::drive(&statifier_case(
+            HISTORY,
+            &["q1"],
+            steps(true),
+            serde_json::json!({})
+        )),
+        runner::Outcome::Pass
+    );
+    assert_eq!(
+        runner::drive(&statifier_case(
+            HISTORY,
+            &["q1"],
+            steps(false),
+            serde_json::json!({})
+        )),
+        runner::Outcome::Fail(
+            "after step 1 (e.go), expect_position differs: running: expected false, but got true"
+                .to_owned()
+        )
+    );
 }

@@ -116,15 +116,33 @@ drive reads it. Before the chart starts, a case carrying
 `Machine::check_accepts` on the compiled chart (a JSON `null` being no
 declaration), and both lists it answers must be exactly the case's,
 order included; either key without the other fails the case, as the
-reference's host case runner checks it. A case the drive cannot compare
-yet fails before the chart starts, naming what it waits on: a host key
-it does not honour (the chart diff's `to_source`, `expect_diff`,
-`mapping` and `expect_compatible_at`) and a step carrying
-`expect_position` (the position rendering). The registry check prints, for each driven suite,
-how many cases pass, and the gap list: every case of every suite the
-registry does not claim, in the reference's order, with its conformance
-class when the corpus gives one, the features it needs, the keys of its
-`host` object when it has one, and whether it passes or why it fails.
+reference's host case runner checks it. A chart diff case is driven like any
+host case: its `to_source`, `expect_diff`, `mapping` and
+`expect_compatible_at` are accepted and none of them is compared. This
+follows the reference's host case runner, which compares none of them (its
+moduledoc at the tag), not the reference's own test suite
+(`test/corpus/diff_cases_test.exs`), which does compare them. A step
+carrying an `expect_position` is compared, once that step's configuration
+agrees, with the rendering of the position the drive reached
+(`tests/conformance/position_expectation.rs`), as the reference renders and
+compares it (`render/1` and `compare/3` in
+`lib/mix/statifier/corpus/position_expectation.ex` at the tag): the
+configuration, the entered states and the states to invoke, each sorted; the
+history values, each history state to a sorted list; the active invocations
+as state and index without id, sorted; the running flag; and the datamodel
+in JSON form without `_event`, `_ioprocessors` and `_sessionid`, and without
+`_name` unless the `<scxml>` element carries a `name` attribute; numbers
+compared by value. Whether the element carries a `name` is read from `_name`
+itself, which the crate binds to that attribute, undefined without one, and
+which a chart cannot assign. The reference also refuses, before the chart
+starts, a case expecting a position whose document holds a state with no id;
+the crate exposes no list of a document's states, so the drive answers the
+export's own refusal instead, which names such a state only when the
+position holds it. The registry check prints, for each driven suite, how
+many cases pass, and the gap list: every case of every suite the registry
+does not claim, in the reference's order, with its conformance class when
+the corpus gives one, the features it needs, the keys of its `host` object
+when it has one, and whether it passes or why it fails.
 
 An excluded document is not in the corpus at all, so it is not a case and
 is counted nowhere; `exclusions.json` is copied for its reasons. A case in
