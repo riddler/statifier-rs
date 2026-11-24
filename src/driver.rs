@@ -33,14 +33,22 @@
 //! discarded.
 //!
 //! A macrostep that spends its round budget halts the driver as the
-//! reference halts its session: the chart stays where the macrostep left it,
-//! later external events are queued and not taken, and pending timers still
-//! fire. One call also spends the budget on two counts the reference's
-//! session, which never returns, has no need of: the events it takes that an
-//! immediate send to the session itself queued in the same call, and the
-//! immediate sends it delivers onto the internal queue. A call that would
-//! take one more than the budget halts the same way, so every call returns.
-//! A fired timer's event is never counted.
+//! reference halts its session: the chart stays where the macrostep left it
+//! and is never run again. Later external events are queued and not taken.
+//! A pending timer still fires: a send to the session itself joins the
+//! external queue, untaken, and a send to the internal queue or to a target
+//! the driver cannot reach is dropped, with nothing run and nothing raised,
+//! as the reference's halted session drops a fired delayed send.
+//!
+//! One call also spends the budget on three counts the reference's
+//! session, which never returns, has no need of: the events it takes that
+//! an immediate send to the session itself queued in the same call, the
+//! immediate sends it delivers onto the internal queue, and the timers it
+//! fires that were scheduled in the same call. A call that would count one
+//! more than the budget on any of them halts the same way, answering
+//! [`Effect::BudgetExhausted`], so every call returns, a chart that keeps
+//! rescheduling a timer due at once included. A timer an earlier call
+//! scheduled is never counted.
 
 #[cfg(test)]
 mod tests;
@@ -379,6 +387,7 @@ impl State {
         let mut call = Call::open(self.clone());
         while let Some(timer) = call.next_due(until) {
             call.state.now_ms = timer.due_ms;
+            call.count_fire(&timer);
             let effects = call.route(timer.send, false);
             call.perform(effects);
             call.drain();
@@ -448,12 +457,18 @@ struct Call {
     sent_internal: u64,
     /// Whether this call has spent its budget: nothing more runs the chart.
     spent: bool,
+    /// The sequence of the first timer this call schedules: a timer at or
+    /// past it was scheduled in this call.
+    first_sequence: u64,
+    /// Timers scheduled in this call that it fired.
+    fired: u64,
 }
 
 impl Call {
     /// A call over `state`: every event already queued is one an earlier
     /// call queued, and is not counted.
     fn open(mut state: State) -> Self {
+        let first_sequence = state.sequence;
         let external = std::mem::take(&mut state.external_queue)
             .into_iter()
             .map(|event| Queued {
@@ -468,6 +483,8 @@ impl Call {
             taken: 0,
             sent_internal: 0,
             spent: false,
+            first_sequence,
+            fired: 0,
         }
     }
 
@@ -515,6 +532,19 @@ impl Call {
                 self.state.core = stepped.state;
                 self.perform(stepped.effects);
             }
+        }
+    }
+
+    /// Counts a timer this call scheduled against the budget as it fires,
+    /// halting the driver when the budget has no room for it; a halted
+    /// driver runs nothing, so its fires are not counted.
+    fn count_fire(&mut self, timer: &Timer) {
+        if self.state.halted || timer.sequence < self.first_sequence {
+            return;
+        }
+        self.fired = self.fired.saturating_add(1);
+        if !self.state.round_budget.admits(self.fired) {
+            self.halt();
         }
     }
 
@@ -660,7 +690,7 @@ impl Call {
                 event.origin = None;
                 event.origintype = None;
                 if !immediate {
-                    return self.deliver_internal(event);
+                    return self.fired_internal(event);
                 }
                 self.sent_internal = self.sent_internal.saturating_add(1);
                 if self.state.round_budget.admits(self.sent_internal) {
@@ -672,9 +702,21 @@ impl Call {
             _ => {
                 let mut event = Event::platform("error.communication", Value::Undefined);
                 event.sendid = send.event.sendid;
-                self.deliver_internal(event)
+                self.fired_internal(event)
             }
         }
+    }
+
+    /// A fired timer's delivery onto the internal queue, its own event or
+    /// the `error.communication` an unreachable target raises: dropped by a
+    /// halted driver, with nothing run and nothing raised, as the
+    /// reference's halted session drops a fired delayed send; delivered
+    /// otherwise.
+    fn fired_internal(&mut self, event: Event) -> Vec<Effect> {
+        if self.state.halted {
+            return Vec::new();
+        }
+        self.deliver_internal(event)
     }
 
     /// An event for the session itself joins its external queue, counted
