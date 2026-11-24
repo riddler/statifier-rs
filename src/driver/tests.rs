@@ -576,8 +576,8 @@ fn a_timer_rescheduled_due_at_once_spends_the_call_s_budget() {
 // A heartbeat that reschedules itself a second later is bounded by the
 // duration advanced, never by the budget: one long advance answers what ten
 // short ones do.
-// Sabotage: with `count_fire` never starting its count over when the clock
-// moves on, the long advance halts with BudgetExhausted and leaves no timer.
+// Sabotage: with `next_instant` keeping the count of fired timers when the
+// clock moves on, the long advance halts with BudgetExhausted and leaves no timer.
 #[test]
 fn a_timer_rescheduled_with_a_delay_is_not_halted_however_time_is_split() {
     let machine = machine(
@@ -607,5 +607,45 @@ fn a_timer_rescheduled_with_a_delay_is_not_halted_however_time_is_split() {
     }
     assert_eq!(effects, long.effects);
     assert_eq!(labels(&long.effects).len(), 10);
+    assert_eq!(state.next_due_ms(), Some(11_000));
+}
+
+// A heartbeat whose tick also sends itself an event and sends one onto the
+// internal queue at once: each count is kept at one virtual time, so one
+// long advance answers what ten short ones do, and nothing halts.
+// Sabotage: with `next_instant` keeping the count of events taken (or of
+// internal sends), the long advance halts with BudgetExhausted.
+#[test]
+fn immediate_sends_of_a_heartbeat_are_counted_at_one_virtual_time() {
+    let machine = machine(
+        r#" initial="a""#,
+        r##"<state id="a"><onentry><send event="tick" delay="1000ms"/></onentry>
+           <transition event="tick"><send event="echo"/><send event="inner" target="#_internal"/>
+             <send event="tick" delay="1000ms"/></transition>
+           <transition event="echo"><log label="echo"/></transition>
+           <transition event="inner"><log label="inner"/></transition></state>"##,
+    );
+    let mut options = Options::new("s-1");
+    options.round_budget = budget(3);
+    let started = machine.start(options).unwrap();
+    let long = started.state.advance(10_000).unwrap();
+    assert!(
+        !long
+            .effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::BudgetExhausted { .. })),
+        "{:#?}",
+        long.effects
+    );
+    assert_eq!(labels(&long.effects).len(), 20);
+    assert_eq!(long.state.next_due_ms(), Some(11_000));
+    let mut state = started.state;
+    let mut effects = Vec::new();
+    for _ in 0..10 {
+        let moved = state.advance(1_000).unwrap();
+        effects.extend(moved.effects);
+        state = moved.state;
+    }
+    assert_eq!(effects, long.effects);
     assert_eq!(state.next_due_ms(), Some(11_000));
 }

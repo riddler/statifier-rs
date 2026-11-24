@@ -41,18 +41,19 @@
 //! as the reference's halted session drops a fired delayed send.
 //!
 //! One call also spends the budget on three counts the reference's
-//! session, which never returns, has no need of: the events it takes that
-//! an immediate send to the session itself queued in the same call, the
-//! immediate sends it delivers onto the internal queue, and the timers it
-//! fires at one virtual time that were scheduled in the same call, the
-//! count starting over whenever the clock moves on. A call that would
-//! count one more than the budget on any of them halts the same way,
-//! answering [`Effect::BudgetExhausted`]. Under a bounded budget every call
-//! therefore returns, a chart that keeps rescheduling a timer due at once
-//! included, while a chain of timers with a delay is bounded by the duration
-//! advanced and never halts on this count; under [`RoundBudget::Unbounded`]
-//! no count ever halts the driver, and such a call may never return. A timer an earlier
-//! call scheduled is never counted.
+//! session, which never returns, has no need of, each kept at one virtual
+//! time and started over whenever [`State::advance`] moves the clock on:
+//! the events it takes that an immediate send to the session itself queued
+//! in the same call, the immediate sends it delivers onto the internal
+//! queue, and the timers it fires that were scheduled in the same call. A
+//! call that would count one more than the budget on any of them halts the
+//! same way, answering [`Effect::BudgetExhausted`]. Under a bounded budget
+//! every call therefore returns, a chart that keeps rescheduling a timer
+//! due at once included, while a chain of timers with a delay is bounded by
+//! the duration advanced and never halts on these counts, however the host
+//! splits time. Under [`RoundBudget::Unbounded`] no count ever halts the
+//! driver, and such a call may never return. A timer an earlier call
+//! scheduled is never counted.
 
 #[cfg(test)]
 mod tests;
@@ -390,6 +391,9 @@ impl State {
             .ok_or(Error::InvalidDuration { ms })?;
         let mut call = Call::open(self.clone());
         while let Some(timer) = call.next_due(until) {
+            if timer.due_ms > call.state.now_ms {
+                call.next_instant();
+            }
             call.state.now_ms = timer.due_ms;
             call.count_fire(&timer);
             let effects = call.route(timer.send, false);
@@ -455,20 +459,19 @@ struct Call {
     state: State,
     external: VecDeque<Queued>,
     effects: Vec<Effect>,
-    /// Counted events taken in this call.
+    /// Counted events taken in this call at the current virtual time.
     taken: u64,
-    /// Immediate internal sends delivered in this call.
+    /// Immediate internal sends delivered in this call at the current
+    /// virtual time.
     sent_internal: u64,
     /// Whether this call has spent its budget: nothing more runs the chart.
     spent: bool,
     /// The sequence of the first timer this call schedules: a timer at or
     /// past it was scheduled in this call.
     first_sequence: u64,
-    /// Timers scheduled in this call that it fired at the virtual time
-    /// `fired_at`.
+    /// Timers scheduled in this call that it fired at the current virtual
+    /// time.
     fired: u64,
-    /// The virtual time the `fired` count is for.
-    fired_at: u64,
 }
 
 impl Call {
@@ -492,7 +495,6 @@ impl Call {
             spent: false,
             first_sequence,
             fired: 0,
-            fired_at: 0,
         }
     }
 
@@ -543,19 +545,22 @@ impl Call {
         }
     }
 
+    /// The clock has moved on to a later virtual time: the call's three
+    /// counts start over, so each bounds only what happens at one time, and
+    /// a chain of timers with a delay is bounded by the duration advanced.
+    fn next_instant(&mut self) {
+        self.taken = 0;
+        self.sent_internal = 0;
+        self.fired = 0;
+    }
+
     /// Counts a timer this call scheduled against the budget as it fires,
-    /// at one virtual time: the count starts over whenever the clock has
-    /// moved on, so only a chain of timers due at once is bounded, and a
-    /// chain with a delay is bounded by the duration advanced. Halts the
-    /// driver when the budget has no room for it; a halted driver runs
-    /// nothing, so its fires are not counted.
+    /// at the current virtual time. Halts the driver when the budget has
+    /// no room for it; a halted driver runs nothing, so its fires are not
+    /// counted.
     fn count_fire(&mut self, timer: &Timer) {
         if self.state.halted || timer.sequence < self.first_sequence {
             return;
-        }
-        if timer.due_ms != self.fired_at {
-            self.fired_at = timer.due_ms;
-            self.fired = 0;
         }
         self.fired = self.fired.saturating_add(1);
         if !self.state.round_budget.admits(self.fired) {
