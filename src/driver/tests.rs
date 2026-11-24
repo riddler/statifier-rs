@@ -753,3 +753,178 @@ fn the_leaf_count_counts_a_leaf_with_no_id_running_and_stopped() {
     assert_eq!(done.active_leaf_count, 1);
     assert_eq!(stopped.state.active_leaf_count(), 0);
 }
+
+// A start with `x-host` registered.
+fn start_hosting(attributes: &str, body: &str) -> Moved {
+    let mut options = Options::new("s-1");
+    options.send_types = BTreeSet::from([String::from("x-host")]);
+    machine(attributes, body).start(options).expect("a start")
+}
+
+// The first send of `x-host` among `effects`, immediate or delayed.
+fn handed(effects: &[Effect]) -> Effect {
+    effects
+        .iter()
+        .find(|effect| {
+            matches!(effect, Effect::Send { send_type: Some(t), .. } | Effect::SendDelayed { send_type: Some(t), .. } if *t == text("x-host"))
+        })
+        .cloned()
+        .expect("a send handed to the host")
+}
+
+const FAILING: &str = r#"<state id="a"><onentry>
+       <send event="e.out" type="x-host"/><send event="e.out" type="x-host" id="named" delay="1s"/>
+     </onentry>
+     <transition event="error.communication">
+       <log label="sendid" expr="_event.sendid"/><log label="type" expr="_event.type"/>
+       <log label="data" expr="_event.data"/><log label="origin" expr="_event.origin"/>
+     </transition></state>"#;
+
+// A report raises error.communication as a platform event, run within the
+// call: its sendid the send's id, generated or named, no data, no origin,
+// and the reason written nowhere.
+// Sabotage: with `report_send_failed` setting no sendid, the first sendid
+// log reads undefined.
+#[test]
+fn a_failed_send_report_raises_error_communication_with_the_sends_id() {
+    let started = start_hosting(r#" initial="a""#, FAILING);
+    let immediate = handed(&started.effects);
+    let reported = started
+        .state
+        .report_send_failed(&immediate, Some("unreachable"))
+        .unwrap();
+    assert_eq!(
+        logs(&reported.effects),
+        [
+            (String::from("sendid"), text("send_1")),
+            (String::from("type"), text("platform")),
+            (String::from("data"), Value::Undefined),
+            (String::from("origin"), Value::Undefined),
+        ]
+    );
+    let delayed = started
+        .effects
+        .iter()
+        .find(|effect| matches!(effect, Effect::SendDelayed { .. }))
+        .cloned()
+        .expect("the delayed send handed");
+    let reported = reported.state.report_send_failed(&delayed, None).unwrap();
+    assert_eq!(
+        logs(&reported.effects)[0],
+        (String::from("sendid"), text("named"))
+    );
+    assert_eq!(reported.state.configuration(), ["a"]);
+}
+
+// A report runs the chart to a stable configuration, then takes the
+// external queue as a step does.
+// Sabotage: with `fail_at` not draining after the delivery, the queued
+// e.next is not taken and the chart stays in b.
+#[test]
+fn a_failed_send_report_runs_the_chart_and_takes_its_external_queue() {
+    let started = start_hosting(
+        r#" initial="a""#,
+        r#"<state id="a"><onentry><send event="e.out" type="x-host"/></onentry>
+             <transition event="error.communication" target="b"/></state>
+           <state id="b"><onentry><send event="e.next"/></onentry>
+             <transition event="e.next" target="c"/></state>
+           <state id="c"/>"#,
+    );
+    let reported = started
+        .state
+        .report_send_failed(&handed(&started.effects), None)
+        .unwrap();
+    assert_eq!(reported.state.configuration(), ["c"]);
+    assert_eq!(started.state.configuration(), ["a"]);
+}
+
+// A report after the chart stopped answers NotRunning; one while a spent
+// budget has halted it answers Halted; neither queues anything.
+// Sabotage: with the halted check removed, the halted report answers Ok and
+// the error.communication waits on the internal queue.
+#[test]
+fn a_failed_send_report_is_refused_by_a_stopped_or_halted_chart() {
+    let stopped = start_hosting(
+        r#" initial="a""#,
+        r#"<state id="a"><onentry><send event="e.out" type="x-host"/></onentry>
+             <transition event="e.go" target="f"/></state><final id="f"/>"#,
+    );
+    let send = handed(&stopped.effects);
+    let done = stopped.state.step("e.go", Value::Undefined).unwrap();
+    assert_eq!(
+        done.state.report_send_failed(&send, None).unwrap_err(),
+        Error::NotRunning
+    );
+
+    let machine = machine(
+        r#" initial="a""#,
+        r#"<state id="a"><onentry><send event="e.out" type="x-host"/><raise event="e.r"/></onentry>
+             <transition event="e.r" target="a"/></state>"#,
+    );
+    let mut options = Options::new("s-1");
+    options.send_types = BTreeSet::from([String::from("x-host")]);
+    options.round_budget = budget(4);
+    let halted = machine.start(options).unwrap();
+    assert!(halted.state.halted);
+    let queued = halted.state.core.internal_queue.len();
+    assert_eq!(
+        halted
+            .state
+            .report_send_failed(&handed(&halted.effects), None)
+            .unwrap_err(),
+        Error::Halted
+    );
+    assert_eq!(halted.state.core.internal_queue.len(), queued);
+    assert!(Error::Halted.to_string().contains("halted"));
+}
+
+// Any effect that is not a send of a registered type handed to the host is
+// refused as a value: a log, a send of the SCXML type the driver routed, a
+// send of a type the session did not register, and a child wrapper around a
+// log.
+// Sabotage: with the registered-type check removed, the unregistered send
+// is answered Ok.
+#[test]
+fn a_failed_send_report_refuses_an_effect_that_is_not_a_handed_send() {
+    let started = start_hosting(
+        r#" initial="a""#,
+        r#"<state id="a"><onentry><log label="l"/><send event="e.self" delay="1s"/>
+             <send event="e.out" type="x-host"/></onentry></state>"#,
+    );
+    let log = started
+        .effects
+        .iter()
+        .find(|effect| matches!(effect, Effect::Log { .. }))
+        .cloned()
+        .unwrap();
+    let routed = started
+        .effects
+        .iter()
+        .find(|effect| {
+            matches!(
+                effect,
+                Effect::SendDelayed {
+                    send_type: None,
+                    ..
+                }
+            )
+        })
+        .cloned()
+        .unwrap();
+    let mut unregistered = handed(&started.effects);
+    if let Effect::Send { send_type, .. } = &mut unregistered {
+        *send_type = Some(text("x-other"));
+    }
+    let wrapped = Effect::Child {
+        session_id: String::from("s-1"),
+        effect: Box::new(log.clone()),
+    };
+    for effect in [log, routed, unregistered, wrapped] {
+        assert_eq!(
+            started.state.report_send_failed(&effect, None).unwrap_err(),
+            Error::NotAHandedSend,
+            "{effect:?}"
+        );
+    }
+    assert!(Error::NotAHandedSend.to_string().contains("registered"));
+}
