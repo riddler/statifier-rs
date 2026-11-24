@@ -13,10 +13,19 @@ keywords = ["statechart", "scxml", "state-machine", "interpreter", "workflow"]
 categories = ["algorithms", "parser-implementations"]
 include = ["/src/", "/Cargo.toml", "/README.md", "/LICENSE", "/CHANGELOG.md"]
 
+[features]
+default = []
+# Serialize and Deserialize for a position, an effect and a stopped chart's
+# answer, with the predicator crate's own for its values.
+serde = ["dep:serde", "predicator-rs/serde"]
+
 [dependencies]
 # The predicator crate: compiles and evaluates the conditions, values and
-# scripts a chart writes. The crate's one runtime dependency.
+# scripts a chart writes. The crate's one unconditional runtime dependency.
 predicator-rs = "0.1"
+# Behind the `serde` feature alone, off by default. No derive: the
+# implementations are written by hand, so no procedural macro joins the graph.
+serde = { version = "1", optional = true, default-features = false, features = ["std"] }
 
 # The conformance apparatus under tests/conformance/ reads the vendored corpus
 # (JSON) and recomputes its SHA-256 hash; neither crate is a dependency of the

@@ -56,8 +56,11 @@
 //! call may never return. A timer scheduled by an earlier call, or at an
 //! earlier virtual time, is never counted.
 
+mod position;
 #[cfg(test)]
 mod tests;
+
+pub use position::{ActiveInvocation, ExportError, ImportError, Position, Status};
 
 use crate::datamodel::system_variables::{EventType, SCXML_EVENT_PROCESSOR, scxml_location};
 use crate::effect::Effect;
@@ -156,7 +159,8 @@ pub struct Options {
     /// spends it on.
     pub round_budget: RoundBudget,
     /// Whether the chart answers trace effects. This version emits none,
-    /// whatever the flag says.
+    /// whatever the flag says; the state keeps it, and a position carries
+    /// it.
     pub trace: bool,
 }
 
@@ -295,6 +299,7 @@ pub struct State {
     core: MachineState,
     session_id: String,
     round_budget: RoundBudget,
+    trace: bool,
     now_ms: u64,
     timers: Vec<Timer>,
     sequence: u64,
@@ -344,6 +349,7 @@ impl Machine {
             core: started.state,
             session_id: options.session_id,
             round_budget: options.round_budget,
+            trace: options.trace,
             now_ms: 0,
             timers: Vec::new(),
             sequence: 0,

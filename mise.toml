@@ -36,6 +36,13 @@ description = "conformance/registry.json passes every check RATCHET.md gives it"
 # claimed.
 run = "cargo test --test conformance -- --exact registry_check --nocapture"
 
+[tasks."gate:position"]
+description = "The position round trip agrees at every scion step it can carry"
+# Exports the position after the start and after every step of every scion
+# case, takes it through JSON text, imports it into a fresh machine and
+# drives on; prints the counts and names every point not carried.
+run = "cargo test --all-features --test conformance -- --exact position_check --nocapture"
+
 [tasks.ratchet]
 description = "Write conformance/registry.json from a run of the whole corpus made now"
 # The one writer of the registry, outside the gate: it adds every case the
@@ -90,6 +97,7 @@ run = [
   { task = "gate:clippy" },
   { task = "gate:corpus" },
   { task = "gate:registry" },
+  { task = "gate:position" },
   { task = "gate:test" },
   { task = "gate:doc" },
   { task = "gate:coverage" },
