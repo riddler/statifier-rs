@@ -127,11 +127,15 @@ made a synchronous value step:
 - One call also spends the round budget on the events it takes that an
   immediate send to the session itself queued in the same call, on the
   immediate sends it delivers onto the internal queue, and on the timers it
-  fires that were scheduled in the same call; one more than the budget on
-  any of the three halts the driver as a spent macrostep does, answering
-  `Effect::BudgetExhausted`, so every call returns. A timer an earlier call
-  scheduled is not counted. The reference's session never returns, so it
-  counts none of them.
+  fires at one virtual time that were scheduled in the same call (the count
+  starts over whenever the clock moves on); one more than the budget on any
+  of the three halts the driver as a spent macrostep does, answering
+  `Effect::BudgetExhausted`. Under a bounded budget every call therefore
+  returns, a timer rescheduled due at once included; a chain of timers with
+  a delay is bounded by the duration advanced and never halts on this
+  count. Under `RoundBudget::Unbounded` no count ever halts the driver, and
+  such a call may never return. A timer an earlier call scheduled is not counted. The
+  reference's session never returns, so it counts none of them.
 - `State::advance` takes a whole number of milliseconds, so no duration is
   negative; it refuses one that moves the clock past its largest value
   with `Error::InvalidDuration`, the driver's name for what the reference

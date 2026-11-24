@@ -30,9 +30,10 @@ pub fn settle(state: &State) -> Result<State, Error> {
 /// The configuration deadline: due timers fire, earliest first, until
 /// `reached` holds, the chart has stopped, no timer is pending, or the next
 /// one falls due more than [`CONFIGURATION_DEADLINE_MS`] after `since`. It
-/// ends because every advance does: a chart that keeps rescheduling a timer
-/// due at once spends the call's budget and halts, and a halted chart
-/// schedules nothing more.
+/// ends under a bounded budget because every advance does: a chart that
+/// keeps rescheduling a timer due at once spends the call's budget at that
+/// virtual time and halts, and a halted chart schedules nothing more; a
+/// timer due later than the deadline ends the wait.
 pub fn await_until(
     state: &State,
     since: u64,
